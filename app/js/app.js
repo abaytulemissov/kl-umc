@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.2.0';
+  const VERSION = '0.3.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -447,12 +447,55 @@
     }
   }
 
+  // the stamp is ticked by default on every new sheet; unticking affects only the current sheet
   function updateStampRow() {
     const has = !!state.stamp;
     const cb = $('#useStamp');
     cb.disabled = !has;
-    cb.checked = has && store.get('useStamp', true);
-    $('#stampHint').textContent = has ? '' : 'Загрузите печать в настройках (⚙), чтобы ставить её автоматически.';
+    cb.checked = has;
+    const hint = $('#stampHint');
+    hint.innerHTML = '';
+    if (has) return;
+    vaultBox.then((box) => {
+      if (state.stamp) return;
+      hint.innerHTML = '';
+      if (box) hint.append(el('button', { type: 'button', class: 'btn ghost small', onclick: (e) => (e.preventDefault(), askPin()) }, 'Ввести PIN печати'));
+      else hint.textContent = 'Загрузите печать в настройках (⚙), чтобы ставить её автоматически.';
+    });
+  }
+
+  // ---- PIN-protected stamp (stamp.enc.json on the site; decrypted once per device)
+  const vaultBox = fetch('stamp.enc.json', { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  function askPin() {
+    const d = $('#pinDlg');
+    const input = $('#pinInput');
+    const msg = $('#pinMsg');
+    input.value = '';
+    msg.textContent = '';
+    d.showModal();
+    input.focus();
+    $('#pinOk').onclick = async (e) => {
+      e.preventDefault();
+      const box = await vaultBox;
+      if (!box || !input.value) return;
+      msg.textContent = 'Проверяю…';
+      try {
+        const url = await Vault.unlock(box, input.value);
+        input.value = '';
+        if (!store.set('stamp', url)) toast('Не хватает места для печати на устройстве');
+        state.stamp = url;
+        d.close();
+        toast('Печать подключена');
+        updateStampRow();
+        renderSettings();
+        if (state.tpl) schedulePreview(true);
+      } catch (err) {
+        msg.textContent = 'Неверный PIN';
+        input.select();
+      }
+    };
   }
 
   // =============================================================== PDF
@@ -590,6 +633,8 @@
     img.hidden = !state.stamp;
     $('#stampNone').hidden = !!state.stamp;
     if (state.stamp) img.src = state.stamp;
+    $('#stampPin').hidden = true;
+    vaultBox.then((box) => ($('#stampPin').hidden = !box || !!state.stamp));
     $('#speechInfo').textContent = SR
       ? 'Распознавание речи встроено в браузер (бесплатно). В Chrome звук обрабатывается серверами Google, поэтому нужен интернет. Можно также пользоваться микрофоном на клавиатуре телефона.'
       : 'В этом браузере встроенного распознавания нет. Пользуйтесь микрофоном на клавиатуре телефона — текст можно надиктовать в любое поле.';
@@ -709,10 +754,9 @@
         openForm(id, keep);
       })
     );
-    $('#useStamp').addEventListener('change', (e) => {
-      store.set('useStamp', e.target.checked);
-      schedulePreview();
-    });
+    $('#useStamp').addEventListener('change', () => schedulePreview());
+    $('#stampPin').addEventListener('click', askPin);
+    $('#pinCancel').addEventListener('click', () => $('#pinDlg').close());
     $('#downloadBtn').addEventListener('click', download);
     $('#shareBtn').addEventListener('click', share);
     $('#previewBtn').addEventListener('click', openPreview);

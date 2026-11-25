@@ -15,6 +15,26 @@ http.createServer((req, res) => {
     });
     return;
   }
+  // dev-only: PIN setup page for the stamp, the original stamp (never published), saving the encrypted file
+  if (req.method === 'GET' && req.url === '/__dev/stamp-setup') {
+    res.writeHead(200, { 'Content-Type': TYPES['.html'], 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'stamp-setup.html')));
+  }
+  if (req.method === 'GET' && req.url === '/__dev/stamp.png') {
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+    return res.end(fs.readFileSync(path.join(__dirname, '..', 'templates-src', 'stamp.png')));
+  }
+  if (req.method === 'POST' && req.url === '/__save/stamp.enc.json') {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const box = JSON.parse(body);
+      if (box.v !== 1 || !box.data || !box.iv || !box.salt) { res.writeHead(400); return res.end('bad'); }
+      fs.writeFileSync(path.join(ROOT, 'stamp.enc.json'), JSON.stringify(box));
+      res.end('saved');
+    });
+    return;
+  }
   let p = decodeURIComponent(req.url.split('?')[0].split('#')[0]);
   if (p.endsWith('/')) p += 'index.html';
   const file = path.normalize(path.join(ROOT, p));

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PIN для печати</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.45 system-ui, sans-serif; max-width: 460px; margin: 32px auto; padding: 0 16px; }
+  h1 { font-size: 22px; }
+  img { width: 140px; height: 140px; object-fit: contain; border: 1px dashed #999; border-radius: 8px; }
+  label { display: block; margin: 14px 0 4px; font-weight: 600; }
+  input { width: 100%; font-size: 18px; padding: 10px; box-sizing: border-box; border-radius: 8px; border: 1px solid #999; }
+  button { margin-top: 18px; width: 100%; padding: 12px; font-size: 17px; border: 0; border-radius: 10px; background: #b14a4a; color: #fff; cursor: pointer; }
+  .hint { color: #888; font-size: 14px; }
+  #msg { margin-top: 14px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Защита печати PIN-кодом</h1>
+  <p>Эта страница открыта только на вашем компьютере. Печать будет зашифрована вашим PIN-кодом
+    и только в таком виде попадёт на сайт.</p>
+  <img id="pv" alt="Печать">
+  <label for="p1">Придумайте PIN</label>
+  <input id="p1" type="password" autocomplete="new-password">
+  <p class="hint">Не меньше 6 символов. Надёжнее — буквы и цифры. Запомните его: на каждом телефоне/компьютере
+    его нужно ввести один раз. Если забудете — просто зашифруем печать заново с новым PIN.</p>
+  <label for="p2">Повторите PIN</label>
+  <input id="p2" type="password" autocomplete="new-password">
+  <button id="go">Зашифровать и сохранить</button>
+  <div id="msg"></div>
+<script src="/js/vault.js"></script>
+<script>
+  const $ = (s) => document.querySelector(s);
+  $('#pv').src = '/__dev/stamp.png';
+  $('#go').onclick = async () => {
+    const a = $('#p1').value, b = $('#p2').value, msg = $('#msg');
+    if (a.length < 6) return (msg.textContent = 'PIN слишком короткий — нужно хотя бы 6 символов.');
+    if (a !== b) return (msg.textContent = 'PIN-коды не совпадают.');
+    msg.textContent = 'Шифрую…';
+    // downscale to at most 600 px so it stays small on phones
+    const img = $('#pv');
+    await img.decode();
+    const k = Math.min(1, 600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k);
+    c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const bytes = new Uint8Array(await (await new Promise((r) => c.toBlob(r, 'image/png'))).arrayBuffer());
+    const box = await Vault.lock(bytes, a, 'image/png');
+    // self-check before saving
+    await Vault.unlock(box, a);
+    const res = await fetch('/__save/stamp.enc.json', { method: 'POST', body: JSON.stringify(box) });
+    $('#p1').value = $('#p2').value = '';
+    msg.textContent = res.ok ? '✓ Готово. Можно закрыть эту страницу и сообщить в чат.' : 'Не удалось сохранить файл.';
+  };
+</script>
+</body>
+</html>

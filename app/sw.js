@@ -1,7 +1,7 @@
 // Offline support. Bump VERSION whenever app files change.
-const VERSION = 'kl-v0.2.0';
+const VERSION = 'kl-v0.3.0';
 const CORE = [
-  './', 'index.html', 'css/style.css', 'js/app.js', 'js/render.js', 'js/parse.js',
+  './', 'index.html', 'css/style.css', 'js/app.js', 'js/render.js', 'js/parse.js', 'js/vault.js',
   'vendor/pdfmake.min.js', 'manifest.webmanifest', 'icons/icon.svg',
   'fonts/Arimo-Regular.ttf', 'fonts/Arimo-Bold.ttf', 'fonts/Arimo-Italic.ttf', 'fonts/Arimo-BoldItalic.ttf',
   'templates/index.json',

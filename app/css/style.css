@@ -197,3 +197,6 @@ dialog::backdrop { background: rgba(20, 15, 12, .45); }
 .learned { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .learned-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
 .learned-row span { overflow-wrap: anywhere; }
+
+.pin-input { width: 100%; font-size: 20px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line, #ccc); background: transparent; color: inherit; box-sizing: border-box; letter-spacing: 2px; }
+#pinMsg { color: #b14a4a; min-height: 1.2em; }

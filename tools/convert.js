@@ -250,7 +250,12 @@ function exportImage(ctx, rid, rels) {
   if (!ctx.zip[p]) return null;
   const buf = ctx.zip[p]();
   const h = hash(buf);
-  if (STAMP_HASHES.has(h)) return { stamp: true };
+  if (STAMP_HASHES.has(h)) {
+    // keep a local copy (templates-src/ is gitignored) for the PIN-encrypted stamp file
+    const local = path.join(SRC, 'stamp' + path.extname(p).toLowerCase());
+    if (!fs.existsSync(local)) fs.writeFileSync(local, buf);
+    return { stamp: true };
+  }
   const name = h + path.extname(p).toLowerCase();
   const out = path.join(IMG, name);
   if (!fs.existsSync(out)) fs.writeFileSync(out, buf);
@@ -698,7 +703,7 @@ function semantic(tpl, ctx) {
     fields[k] = { key: k, label, fillin: true };
   }
 
-  const LABEL = { fio: 'Ф.И.О. пациента', dob: 'Дата рождения', iin: 'ИИН', date: 'Дата консультации', opdate: 'Дата операции', diagnosis: 'Диагноз (МКБ-10)', operation: 'Операция / код (МКБ-9)' };
+  const LABEL = { fio: 'Ф.И.О. пациента', dob: 'Дата рождения', iin: 'ИИН', date: 'Дата консультации', opdate: 'Дата госпитализации', diagnosis: 'Диагноз (МКБ-10)', operation: 'Операция / код (МКБ-9)' };
   const KIND = { dob: 'date', date: 'date', opdate: 'date', diagnosis: 'multiline', operation: 'multiline' };
   const ORDER = ['fio', 'dob', 'iin', 'date', 'opdate', 'diagnosis', 'operation'];
   const list = Object.values(fields)
@@ -755,7 +760,60 @@ function convert(file) {
 
   const tpl = { page, header: part('header'), footer: part('footer'), body: blocks };
   tpl.fields = semantic(tpl, ctx);
+  addHospLine(tpl);
+  addStamp(tpl);
   return tpl;
+}
+
+// Every template gets a "Дата госпитализации" field. Templates that do not already
+// mention it get an extra line after the operation (or diagnosis) paragraph, printed
+// only when the date is filled in (onlyIf).
+function addHospLine(tpl) {
+  if (tpl.fields.some((f) => f.key === 'opdate')) return;
+  const find = (key) => {
+    let hit = null;
+    const walk = (arr) =>
+      arr.forEach((b, i) => {
+        if (hit) return;
+        if (b.t === 'p' && textOf(b).includes(`{{${key}}}`)) hit = { arr, i, b };
+        else if (b.t === 'table') b.rows.forEach((r) => r.forEach((c) => walk(c.blocks)));
+      });
+    walk(tpl.body);
+    return hit;
+  };
+  const at = find('operation') || find('diagnosis');
+  if (!at) return;
+  const fs = at.b.fs || 12;
+  const size = ((at.b.runs || []).find((r) => r.fontSize) || {}).fontSize || fs;
+  at.arr.splice(at.i + 1, 0, {
+    t: 'p', fs, left: at.b.left || 0, before: 4, after: Math.max(at.b.after || 0, 4), line: 1, onlyIf: 'opdate',
+    runs: [
+      { text: 'Дата госпитализации: ', bold: true, fontSize: size },
+      { text: "{{opdate|d MMMM yyyy 'г.'}}", fontSize: size },
+    ],
+  });
+  const di = tpl.fields.findIndex((f) => f.key === 'date');
+  tpl.fields.splice(di + 1, 0, { label: 'Дата госпитализации', kind: 'date', key: 'opdate' });
+}
+
+// Templates whose Word original has no stamp image: put it over the signature
+// blank on the doctor's line ("Ангиохирург: ______ Тулемисов …").
+function addStamp(tpl) {
+  if (JSON.stringify(tpl.body).includes('"stamp":true')) return;
+  const target = tpl.body.find((b) => b.t === 'p' && /хирург/i.test(textOf(b)) && /Тулемисов/.test(textOf(b)));
+  if (!target) return;
+  const t = textOf(target).replace(/\s+$/, '');
+  const width = tpl.page.w - tpl.page.left - tpl.page.right;
+  const cw = (target.fs || 12) * 0.56; // average Arial character width
+  let x;
+  const u = t.match(/_+/);
+  if (!u) x = 290; // "Врач-ангиохирург \t\t\t Абай Канатович Тулемисов" — same place as in the other templates
+  else {
+    const len = t.length * cw;
+    const start = target.align === 'right' ? width - len : target.align === 'center' ? (width - len) / 2 : target.left || 0;
+    x = start + (u.index + u[0].length / 2) * cw - 43;
+  }
+  target.images = [...(target.images || []), { stamp: true, w: 86, h: 86, anchor: { h: { from: 'column', off: Math.round(x) }, v: { from: 'paragraph', off: -36 }, behind: true }, at: 0 }];
 }
 
 // ---------------------------------------------------------------- main

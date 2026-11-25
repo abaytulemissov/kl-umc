@@ -169,7 +169,9 @@
         margin: m,
       };
     }
-    if (floating.length) node = { stack: [...floating, node], unbreakable: false };
+    // unbreakable: lay the stamp out together with its line, so near the bottom of a page
+    // it is not pushed onto the next page on its own
+    if (floating.length) node = { stack: [...floating, node], unbreakable: (b.images || []).some((i) => i.stamp) };
     if (b.pageBreakBefore) node.pageBreak = 'before';
     if (b.breakAfter) node.pageBreak = 'after';
     return node;
@@ -256,7 +258,8 @@
   function blocks(list, ctx, region) {
     const out = [];
     let prev = null;
-    for (const b of tidy(list || [])) {
+    // optional lines (e.g. "Дата госпитализации") are left out entirely when their field is empty
+    for (const b of tidy((list || []).filter((x) => !x.onlyIf || ctx.has(x.onlyIf)))) {
       if (b.t === 'p') out.push(paragraph(b, ctx, region, prev));
       else if (b.t === 'table') out.push(table(b, ctx, region));
       prev = b;
@@ -304,6 +307,7 @@
       images: opts.images || {},
       stamp: opts.useStamp !== false ? opts.stamp : null,
       expand: makeExpander(tpl, values || {}),
+      has: (k) => !!(values && values[k] && String(values[k]).trim()),
       counters: {},
     };
     const images = { ...ctx.images };
