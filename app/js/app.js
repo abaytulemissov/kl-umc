@@ -132,33 +132,73 @@
       activeRec.stop();
       return;
     }
-    const rec = new SR();
-    rec.lang = 'ru-RU';
-    rec.interimResults = true;
-    rec.continuous = !!continuous && !isPhone;
-    let finalText = '';
-    rec.onresult = (e) => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) finalText += (finalText ? ' ' : '') + r[0].transcript.trim();
-        else interim += r[0].transcript;
-      }
-      onResult(finalText, interim);
+    // Phones (esp. iPhone Safari) stop listening after every pause. For "continuous" dictation we
+    // silently restart recognition until the user taps the mic again or stays silent twice in a row.
+    const join = (a, b) => [a, b].map((s) => (s || '').trim()).filter(Boolean).join(' ');
+    let committed = ''; // text from finished recognition runs
+    let runs = 0;
+    let silentRuns = 0;
+    let cur = null;
+    const session = {
+      userStop: false,
+      stop() {
+        this.userStop = true;
+        try { cur && cur.stop(); } catch (e) {}
+      },
     };
-    rec.onerror = (e) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Разрешите доступ к микрофону в настройках браузера', 5000);
-      else if (e.error === 'network') toast('Для распознавания речи нужен интернет');
-      else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Ошибка распознавания: ' + e.error);
-    };
-    rec.onend = () => {
+    const finish = () => {
       btn.classList.remove('listening');
       activeRec = null;
-      if (onEnd) onEnd(finalText);
+      if (onEnd) onEnd(committed);
+    };
+    const startRun = () => {
+      const rec = new SR();
+      cur = rec;
+      runs++;
+      rec.lang = 'ru-RU';
+      rec.interimResults = true;
+      rec.continuous = !!continuous && !isPhone;
+      let fin = '';
+      let interim = '';
+      let fatal = false;
+      rec.onresult = (e) => {
+        // rebuild from all results (avoids duplicated phrases on iOS)
+        fin = '';
+        interim = '';
+        for (let i = 0; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) fin = join(fin, r[0].transcript);
+          else interim += r[0].transcript;
+        }
+        onResult(join(committed, fin), interim);
+      };
+      rec.onerror = (e) => {
+        if (['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(e.error)) fatal = true;
+        if (runs > 1 && fatal) return; // a silent restart was refused — just finish with what we have
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Разрешите доступ к микрофону: Настройки → Safari → Микрофон', 6000);
+        else if (e.error === 'network') toast('Для распознавания речи нужен интернет');
+        else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Ошибка распознавания: ' + e.error);
+      };
+      rec.onend = () => {
+        const got = join(fin, interim); // iOS sometimes ends without marking the result final
+        if (got) {
+          committed = join(committed, got);
+          silentRuns = 0;
+        } else silentRuns++;
+        onResult(committed, '');
+        if (continuous && !session.userStop && !fatal && silentRuns < 2) {
+          try {
+            startRun();
+            return;
+          } catch (e) {}
+        }
+        finish();
+      };
+      rec.start();
     };
     try {
-      rec.start();
-      activeRec = rec;
+      startRun();
+      activeRec = session;
       btn.classList.add('listening');
     } catch (e) {
       toast('Не удалось включить микрофон');

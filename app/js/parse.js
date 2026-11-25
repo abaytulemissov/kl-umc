@@ -164,6 +164,41 @@
     return null;
   }
 
+  // ------------------------------------------------------------ sound-alike matching
+  // Speech recognition (esp. Apple's) mishears medical terms: «гемодектома», «хемо дектома»,
+  // «кемодиктома»… We compare a rough phonetic skeleton and allow 1–2 letter differences.
+  const PH = { г: 'к', х: 'к', д: 'т', б: 'п', з: 'с', ц: 'с', в: 'ф', ж: 'ш', щ: 'ш', ч: 'ш', о: 'а', я: 'а',
+    е: 'и', ы: 'и', э: 'и', й: 'и', ю: 'у', ь: '', ъ: '' };
+  function phon(s) {
+    let o = '';
+    for (const ch of norm(s)) {
+      const c = ch in PH ? PH[ch] : ch;
+      if (c && c !== o[o.length - 1]) o += c;
+    }
+    return o;
+  }
+  function lev(a, b) {
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const row = [i];
+      for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = row;
+    }
+    return prev[b.length];
+  }
+  // does a (stem) keyword part sound like the start of some word (or two joined words) of the text?
+  function soundsLike(words, part) {
+    const p = phon(part);
+    if (p.length < 5) return false; // short keywords (эма, хан, порт…) must match exactly
+    const tol = p.length >= 9 ? 2 : 1;
+    for (let i = 0; i < words.length; i++) {
+      for (const w of [words[i], words[i] + (words[i + 1] || '')]) {
+        for (let L = p.length - tol; L <= Math.min(w.length, p.length + tol); L++) if (lev(w.slice(0, L), p) <= tol) return true;
+      }
+    }
+    return false;
+  }
+
   // ------------------------------------------------------------ template choice
   function scoreTemplates(text, index) {
     const full = norm(text);
@@ -171,11 +206,13 @@
     const cut = full.search(/диагноз/);
     const t = cut > 0 ? full.slice(0, cut) : full;
     const tail = cut > 0 ? full.slice(cut) : '';
+    const words = t.split(/[^a-zа-я0-9]+/).filter(Boolean).map(phon);
     const scored = index.map((tpl) => {
       let s = 0;
       for (const k of tpl.keywords || []) {
         const parts = norm(k).split(/\s+/);
         if (parts.every((p) => t.includes(p))) s += k.length + parts.length * 2;
+        else if (parts.every((p) => t.includes(p) || soundsLike(words, p))) s += (k.length + parts.length * 2) * 0.6;
         else if (tail && parts.every((p) => tail.includes(p))) s += (k.length + parts.length * 2) * 0.3;
       }
       if (/дневн/.test(t) && tpl.group === 'ds') s += 3;
