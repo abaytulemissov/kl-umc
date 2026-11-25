@@ -760,9 +760,187 @@ function convert(file) {
 
   const tpl = { page, header: part('header'), footer: part('footer'), body: blocks };
   tpl.fields = semantic(tpl, ctx);
+  removePatientData(tpl);
   addHospLine(tpl);
   addStamp(tpl);
+  floatingToBlocks(tpl);
+  restyle(tpl);
   return tpl;
+}
+
+// ---------------------------------------------------------------- sample patient data
+// The Word originals were made from real consultations: drop literal dates, history
+// details and the free-text sections of a particular patient (they become empty fields).
+function removePatientData(tpl) {
+  const walk = (bl, fn) => bl.forEach((b) => (b.t === 'table' ? b.rows.forEach((r) => r.forEach((c) => walk(c.blocks, fn))) : fn(b)));
+  // literal dates in the text ("Госпитализация 09/07/2026 через портал")
+  walk(tpl.body, (b) => {
+    for (const r of b.runs || []) if (!/\{\{/.test(r.text)) r.text = r.text.replace(/\s?\b\d{1,2}[\/.]\d{1,2}[\/.]\d{4}\b(\s?г\.)?/g, '');
+    // no double spaces where a date was removed
+    const rs = (b.runs || []).filter((r) => r.text !== '');
+    for (let i = 1; i < rs.length; i++) if (/\s$/.test(rs[i - 1].text) && /^\s/.test(rs[i].text)) rs[i] = { ...rs[i], text: rs[i].text.replace(/^\s+/, '') };
+    if (b.runs) b.runs = rs;
+  });
+  // history in a default diagnosis: "… С/п СФЭ справа от 2019 г."
+  for (const f of tpl.fields) if (f.default) f.default = f.default.replace(/\s*С\/п[^.]*?\b(19|20)\d{2}\s*г?\.?/g, '').trim();
+  // free-text sections (complaints, anamnesis, local status, diagnosis): the text under the heading becomes a field
+  const SECTIONS = [
+    [/^Жалобы/i, 'complaints', 'Жалобы'],
+    [/^Анамнез/i, 'anamnesis', 'Анамнез заболевания'],
+    [/^Локальный статус/i, 'status', 'Локальный статус'],
+  ];
+  const body = tpl.body;
+  for (let i = 0; i < body.length; i++) {
+    const s = SECTIONS.find(([re]) => body[i].t === 'p' && re.test(textOf(body[i]).trim()));
+    if (!s) continue;
+    let j = i + 1;
+    while (j < body.length && body[j].t === 'p' && !textOf(body[j]).trim()) j++;
+    if (!body[j] || body[j].t !== 'p') continue;
+    const style = { ...((body[j].runs || [])[0] || {}) };
+    delete style.text;
+    body[j].runs = [{ ...style, text: `{{${s[1]}}}` }];
+    if (!tpl.fields.some((f) => f.key === s[1])) {
+      const di = tpl.fields.findIndex((f) => f.key === 'diagnosis');
+      tpl.fields.splice(di < 0 ? tpl.fields.length : di, 0, { label: s[2], kind: 'multiline', key: s[1], default: '' });
+    }
+  }
+  // a section-based consultation (complaints/anamnesis) has no "typical" diagnosis
+  if (tpl.fields.some((f) => f.key === 'complaints')) {
+    const dx = tpl.fields.find((f) => f.key === 'diagnosis');
+    if (dx) dx.default = '';
+  }
+}
+
+// ---------------------------------------------------------------- floating pictures
+// A picture floating over an empty line (QR code "оставить отзыв") overlaps text when that
+// line moves to the next page. Make it an ordinary block that takes its own space.
+function floatingToBlocks(tpl) {
+  for (const b of tpl.body) {
+    if (b.t !== 'p' || textOf(b).trim() || !b.images) continue;
+    b.images = b.images.map((im) => {
+      if (im.stamp || !im.anchor) return im;
+      const { anchor, ...rest } = im;
+      b.left = Math.max(0, anchor.h.from === 'page' ? anchor.h.off - tpl.page.left : anchor.h.off || 0);
+      b.before = Math.max(b.before || 0, 4);
+      return rest;
+    });
+  }
+}
+
+// ---------------------------------------------------------------- GAE design
+// Section titles as in the GAE template: a red band (#B14A4A) with white bold text;
+// the diagnosis / operation under it in italics; "Label: text" lines split into band + text.
+const RED = '#B14A4A';
+const HEAD_RE = /^\s*(\(МКБ[^)]*\)\s*)?(Диагноз|Рекомендовано|Рекомендации|Рекомендация|Код операции|Планируемое оперативное лечение|Порядок оформления госпитализации|Комплекс обязательных|Обязательный перечен|Список|С собой иметь|Правила|Необходимые личные вещи|Жалобы|Анамнез|Локальный статус)/i;
+const BIG_RE = /^\s*(Список правил|Правила|Необходимые личные вещи|Список необходимых дополнительных|С собой иметь)/i;
+
+function headTitle(t) {
+  const s = t.replace(/\s+/g, ' ').trim().replace(/:$/, '').trim();
+  if (/^(\(МКБ[^)]*\)\s*)?Диагноз/i.test(s)) return { title: '(МКБ-10) Диагноз', kind: 'dx' };
+  if (/^(\(МКБ[^)]*\)\s*)?(Код операции|Планируемое оперативное лечение)/i.test(s)) return { title: '(МКБ 9) Планируемое оперативное лечение', kind: 'op' };
+  if (/^Рекоменд/i.test(s)) return { title: 'Рекомендовано', kind: 'rec' };
+  return {
+    title: s.replace(/переченнь/g, 'перечень').replace(/на госпитализация(?=[\s:]|$)/g, 'на госпитализацию'),
+    kind: 'other',
+  };
+}
+
+function band(title, big, src) {
+  const fs = big ? 16 : 12;
+  const p = { t: 'p', fs, align: 'left', before: big ? 10 : 4, after: 0, line: 1, fill: RED, runs: [{ text: title, bold: true, fontSize: fs, color: '#FFFFFF' }] };
+  if (src && src.pageBreakBefore) p.pageBreakBefore = true;
+  return p;
+}
+
+// split runs at character offset n -> [before, after]
+function cutRuns(runs, n) {
+  const a = [];
+  const b = [];
+  let pos = 0;
+  for (const r of runs || []) {
+    const end = pos + r.text.length;
+    if (end <= n) a.push(r);
+    else if (pos >= n) b.push(r);
+    else {
+      a.push({ ...r, text: r.text.slice(0, n - pos) });
+      b.push({ ...r, text: r.text.slice(n - pos) });
+    }
+    pos = end;
+  }
+  return [a, b];
+}
+
+function restyle(tpl) {
+  const big = (t) => tpl.group === undefined ? BIG_RE.test(t) : BIG_RE.test(t);
+  const out = [];
+  let pendingItalic = null; // 'dx' | 'op': style the next content paragraph
+  for (const b of tpl.body) {
+    if (b.t !== 'p') {
+      out.push(b);
+      continue;
+    }
+    const t = textOf(b);
+    const s = t.trim();
+    const runs = (b.runs || []).filter((r) => r.text.trim());
+    const allBold = runs.length && runs.every((r) => r.bold);
+    if (s && HEAD_RE.test(s) && !b.num && !/\{\{/.test(s.split(':')[0])) {
+      const colon = t.indexOf(':');
+      const rest = colon >= 0 ? t.slice(colon + 1).trim() : '';
+      if (rest && colon < 90) {
+        // inline "Диагноз (МКБ-10): {{diagnosis}}" -> band + text
+        const h = headTitle(t.slice(0, colon));
+        out.push(band(h.title, big(h.title), b));
+        let [, tail] = cutRuns(b.runs, colon + 1);
+        if (tail[0]) tail[0] = { ...tail[0], text: tail[0].text.replace(/^\s+/, '') };
+        if (h.kind === 'dx' || h.kind === 'op') tail = tail.map((r) => ({ ...r, bold: false, italics: true }));
+        else tail = tail.map((r) => (/\{\{/.test(r.text) ? r : { ...r, bold: allBold ? false : r.bold }));
+        const { pageBreakBefore, fill, images, ...pp } = b;
+        out.push({ ...pp, runs: tail, before: 0, after: Math.min(Math.max(b.after || 0, 3), 4), align: b.align || 'justify', images });
+        continue;
+      }
+      if (s.length < 110 && (b.fill || allBold || /:$/.test(s))) {
+        const h = headTitle(s);
+        const p = band(h.title, big(h.title), b);
+        if (b.images) p.images = b.images;
+        out.push(p);
+        if (h.kind === 'dx' || h.kind === 'op') pendingItalic = h.kind;
+        continue;
+      }
+    }
+    if (pendingItalic && s) {
+      if (/\{\{(diagnosis|operation)\}\}/.test(s)) b.runs = b.runs.map((r) => ({ ...r, bold: false, italics: true }));
+      b.after = Math.min(Math.max(b.after || 0, 3), 4);
+      pendingItalic = null;
+    }
+    out.push(b);
+  }
+  // bands have their own spacing: drop empty lines right before / after them
+  const empty = (x) => x && x.t === 'p' && !textOf(x).trim() && !x.images && !x.pageBreakBefore && !x.breakAfter;
+  const isBand = (x) => x && x.t === 'p' && x.fill === RED;
+  let body = out.filter((x, i) => !(empty(x) && (isBand(out[i + 1]) || isBand(out[i - 1]))));
+  // signature: at most one empty line before it, and "(подпись, печать)" always on the same page
+  const sig = body.findIndex((x) => x.t === 'p' && /хирург/i.test(textOf(x)) && /Тулемисов/.test(textOf(x)));
+  if (sig > 0) {
+    let k = sig - 1;
+    while (k > 0 && empty(body[k]) && empty(body[k - 1])) {
+      body.splice(k, 1);
+      k--;
+    }
+    // "(подпись, печать)" and "Дата: …" under the signature stay on its page
+    const s2 = body.findIndex((x) => x.t === 'p' && /хирург/i.test(textOf(x)) && /Тулемисов/.test(textOf(x)));
+    body[s2].sig = true;
+    for (let j = s2 + 1, n = 0; j < body.length && n < 4; n++) {
+      const x = body[j];
+      if (x.t !== 'p') break;
+      const s = textOf(x).trim();
+      if (/^\(подпись|^Дата\s*:/.test(s)) {
+        x.keepWithPrev = true;
+        j++;
+      } else if (empty(x) && body[j + 1] && /^\(подпись|^Дата\s*:/.test(textOf(body[j + 1]).trim())) body.splice(j, 1);
+      else break;
+    }
+  }
+  tpl.body = body;
 }
 
 // Every template gets a "Дата госпитализации" field. Templates that do not already
@@ -785,6 +963,9 @@ function addHospLine(tpl) {
   if (!at) return;
   const fs = at.b.fs || 12;
   const size = ((at.b.runs || []).find((r) => r.fontSize) || {}).fontSize || fs;
+  // an empty spacer line right after it is only needed when there is no date line
+  const nx = at.arr[at.i + 1];
+  if (nx && nx.t === 'p' && !textOf(nx).trim() && !nx.images && !nx.pageBreakBefore) nx.onlyIfNot = 'opdate';
   at.arr.splice(at.i + 1, 0, {
     t: 'p', fs, left: at.b.left || 0, before: 4, after: Math.max(at.b.after || 0, 4), line: 1, onlyIf: 'opdate',
     runs: [
@@ -798,10 +979,15 @@ function addHospLine(tpl) {
 
 // Templates whose Word original has no stamp image: put it over the signature
 // blank on the doctor's line ("Ангиохирург: ______ Тулемисов …").
+// The stamp always sits on the signature line itself (in some originals it was anchored to the
+// paragraph above, so it stayed behind when the signature moved to the next page).
 function addStamp(tpl) {
-  if (JSON.stringify(tpl.body).includes('"stamp":true')) return;
   const target = tpl.body.find((b) => b.t === 'p' && /хирург/i.test(textOf(b)) && /Тулемисов/.test(textOf(b)));
   if (!target) return;
+  for (const b of tpl.body) if (b.images) {
+    b.images = b.images.filter((im) => !im.stamp);
+    if (!b.images.length) delete b.images;
+  }
   const t = textOf(target).replace(/\s+$/, '');
   const width = tpl.page.w - tpl.page.left - tpl.page.right;
   const cw = (target.fs || 12) * 0.56; // average Arial character width
@@ -846,7 +1032,16 @@ function main() {
       const g = group(base);
       const title = meta.title || base.replace(/^UMC (Портал|Платно) ОИР \((КС|ДС)\)\.?\s*/, '') || base;
       Object.assign(tpl, { id, title, group: g.id, source: f, aliases: meta.aliases || undefined });
-      fs.writeFileSync(path.join(OUT, id + '.json'), JSON.stringify(tpl));
+      // OneDrive sometimes locks a file for a moment: retry
+      for (let k = 0; ; k++) {
+        try {
+          fs.writeFileSync(path.join(OUT, id + '.json'), JSON.stringify(tpl));
+          break;
+        } catch (e) {
+          if (k >= 5) throw e;
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+        }
+      }
       index.push({ id, title, group: g.id, groupTitle: g.title, keywords: meta.keywords || [] });
       console.log('ok  ', id.padEnd(55), tpl.fields.map((x) => x.key + (x.default ? '*' : '')).join(','));
     } catch (e) {

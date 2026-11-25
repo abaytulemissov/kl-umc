@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.3.0';
+  const VERSION = '0.4.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -129,8 +129,12 @@
       return;
     }
     if (activeRec) {
-      activeRec.stop();
-      return;
+      // the same mic again = "stop"; another mic = drop the old session (it may be stuck on iOS) and start this one
+      if (activeRec.btn === btn) {
+        activeRec.stop();
+        return;
+      }
+      activeRec.abort();
     }
     // Phones (esp. iPhone Safari) stop listening after every pause. For "continuous" dictation we
     // silently restart recognition until the user taps the mic again or stays silent twice in a row.
@@ -148,17 +152,32 @@
     let runs = 0;
     let silentRuns = 0;
     let cur = null;
+    let done = false;
+    let watchdog = null;
+    let pending = ''; // heard in the current run but not yet committed (iOS may never send onend)
     const session = {
+      btn,
       userStop: false,
       stop() {
         this.userStop = true;
         try { cur && cur.stop(); } catch (e) {}
+        // iOS sometimes never reports the end — close the session ourselves
+        clearTimeout(watchdog);
+        watchdog = setTimeout(finish, 1500);
+      },
+      abort() {
+        this.userStop = true;
+        try { cur && cur.abort(); } catch (e) {}
+        finish();
       },
     };
     const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog);
       btn.classList.remove('listening');
-      activeRec = null;
-      if (onEnd) onEnd(committed);
+      if (activeRec === session) activeRec = null;
+      if (onEnd) onEnd(merge(committed, pending));
     };
     const startRun = () => {
       const rec = new SR();
@@ -181,6 +200,7 @@
         }
         if (low(fin).endsWith(low(interim))) interim = '';
         else if (low(interim).startsWith(low(fin))) (fin = ''), (interim = interim.trim());
+        pending = merge(fin, interim);
         onResult(merge(committed, fin), interim);
       };
       rec.onerror = (e) => {
@@ -190,8 +210,11 @@
         else if (e.error === 'network') toast('Для распознавания речи нужен интернет');
         else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Ошибка распознавания: ' + e.error);
       };
+      rec.onstart = () => clearTimeout(watchdog);
       rec.onend = () => {
+        if (done || cur !== rec) return;
         const got = merge(fin, interim); // iOS sometimes ends without marking the result final
+        pending = '';
         if (got) {
           committed = merge(committed, got);
           silentRuns = 0;
@@ -200,6 +223,9 @@
         if (continuous && !session.userStop && !fatal && silentRuns < 2) {
           try {
             startRun();
+            // a silent restart that never starts (iOS without a tap) must not leave the mic "stuck"
+            clearTimeout(watchdog);
+            watchdog = setTimeout(finish, 3000);
             return;
           } catch (e) {}
         }
@@ -422,7 +448,7 @@
                 input.value = iso;
                 update();
               } else toast('Не понял дату: «' + fin + '»');
-            }
+            } else if (f.kind === 'date') toast('Не расслышал дату — нажмите микрофон и скажите, например, «10 декабря»');
             if (f.key === 'iin') {
               input.value = input.value.replace(/\D/g, '');
               update();
@@ -510,30 +536,43 @@
     const d = Render.formatDate(v.date || todayISO(), 'dd.MM.yyyy');
     return `${shortFio(v.fio)} — ${state.tpl.title} — ${d}.pdf`.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ');
   }
-  async function buildPdf() {
+  async function buildPdf(compact) {
     await fontsReady;
     const images = await imagesFor(state.tpl);
-    const dd = Render.build(state.tpl, effectiveValues(), {
+    return Render.build(state.tpl, effectiveValues(), {
       images,
       stamp: state.stamp,
       useStamp: $('#useStamp').checked,
       title: fileName().replace(/\.pdf$/, ''),
       author: 'Ангиохирург',
+      compact,
     });
-    return pdfMake.createPdf(dd);
+  }
+  // dd -> Blob; with check=true returns null when the signature spilled onto a new page alone
+  function renderBlob(dd, check) {
+    return new Promise((res, rej) => {
+      try {
+        const pdf = pdfMake.createPdf(dd);
+        if (typeof pdf._createDoc !== 'function' || typeof pdf._flushDoc !== 'function') return pdf.getBlob(res);
+        pdf._createDoc({}, (doc) => {
+          try {
+            if (check && Render.orphanSignature(doc._pdfMakePages, dd)) return res(null);
+            pdf._flushDoc(doc, (buf) => res(new Blob([buf], { type: 'application/pdf' })));
+          } catch (e) {
+            rej(e);
+          }
+        });
+      } catch (e) {
+        rej(e);
+      }
+    });
   }
   const currentKey = () => JSON.stringify([state.tpl && state.tpl.id, state.values, $('#useStamp').checked, !!state.stamp]);
   async function getBlob() {
     const key = currentKey();
     if (state.blob && state.blobKey === key) return state.blob;
-    const pdf = await buildPdf();
-    const blob = await new Promise((res, rej) => {
-      try {
-        pdf.getBlob(res);
-      } catch (e) {
-        rej(e);
-      }
-    });
+    // second, tighter layout only if the signature would end up alone on the next page
+    const blob = (await renderBlob(await buildPdf(false), true)) || (await renderBlob(await buildPdf(true), false));
     state.blob = blob;
     state.blobKey = key;
     return blob;

@@ -78,7 +78,8 @@
       const after = lower.slice(d.end, d.end + 20);
       const own = lower.slice(d.index, d.end);
       let kind = null;
-      if (d.dobHint || /(рожд|д\.?\s?р\.?\s*[:\-]?\s*$|г\.?\s?р)/.test(before) || /^\s*(года?\s+рожд|г\.?\s?р)/.test(after)) kind = 'dob';
+      // only the words right before the date count ("… 1975 года рождения госпитализация на 10 декабря")
+      if (d.dobHint || /(рожд|д\.?\s?р\.?\s*[:\-]?\s*$|г\.?\s?р)/.test(before.slice(-18)) || /^\s*(года?\s+рожд|г\.?\s?р)/.test(after)) kind = 'dob';
       else if (/(операц|госпитализ|поступ|явк|(^|\s)на\s*$)/.test(before)) kind = hasOpdate ? 'opdate' : 'date';
       else if (/(осмотр|консульт|дата\s*$|(^|\s)от\s*$)/.test(before) || /сегодня/.test(own)) kind = 'date';
       if (!kind) {
@@ -284,7 +285,7 @@
   // ------------------------------------------------------------ main
   function parse(text, index, getTemplate, today, learned) {
     today = today || new Date();
-    text = fixHeard(text);
+    text = numberWords(fixHeard(text));
     const result = { values: {}, notes: [], candidates: [], text };
     const candidates = scoreTemplates(text, index, learned);
     result.candidates = candidates.slice(0, 4);
@@ -340,8 +341,66 @@
 
   // Parse a single spoken date for a date field: "12 марта 1975", "12.03.75"
   function parseOneDate(text, today) {
-    const d = findDates(text, today || new Date()).find((x) => x.iso);
-    return d ? d.iso : null;
+    today = today || new Date();
+    text = numberWords(text);
+    const d = findDates(text, today).find((x) => x.iso);
+    if (d) return d.iso;
+    // "10 12 2026", "10.12" (no year -> the next such date)
+    let m = text.match(/(\d{1,2})\s+(\d{1,2})\s+(\d{4})/);
+    if (m && validDate(+m[3], +m[2], +m[1])) return iso(+m[3], +m[2], +m[1]);
+    m = text.match(/(\d{1,2})\s*[.\/\-]\s*(\d{1,2})(?![\d.\/\-])/);
+    if (m) {
+      let y = today.getFullYear();
+      if (new Date(y, +m[2] - 1, +m[1]) < new Date(y, today.getMonth(), today.getDate())) y++;
+      if (validDate(y, +m[2], +m[1])) return iso(y, +m[2], +m[1]);
+    }
+    return null;
+  }
+
+  // Spoken numbers in dates -> digits: "десятое декабря две тысячи двадцать шестого года"
+  // -> "10 декабря 2026 года". Only runs next to a month name or "год…" are converted.
+  const NUM_STEMS = [
+    ['одиннадцат', 11], ['двенадцат', 12], ['тринадцат', 13], ['четырнадцат', 14], ['пятнадцат', 15], ['шестнадцат', 16],
+    ['семнадцат', 17], ['восемнадцат', 18], ['девятнадцат', 19], ['двадцат', 20], ['тридцат', 30], ['сорок', 40],
+    ['пятьдесят', 50], ['пятидесят', 50], ['шестьдесят', 60], ['шестидесят', 60], ['семьдесят', 70], ['семидесят', 70],
+    ['восемьдесят', 80], ['восьмидесят', 80], ['девяност', 90], ['девятьсот', 900], ['девятисот', 900], ['восемьсот', 800],
+    ['восьмисот', 800], ['двухтысячн', 2000], ['тысяч', 1000], ['десят', 10], ['перв', 1], ['один', 1], ['одна', 1], ['одно', 1],
+    ['втор', 2], ['два', 2], ['две', 2], ['двух', 2], ['трет', 3], ['три', 3], ['трех', 3], ['четверт', 4], ['четыр', 4],
+    ['пят', 5], ['шест', 6], ['седьм', 7], ['сем', 7], ['восьм', 8], ['восем', 8], ['девят', 9],
+  ];
+  function numWord(w) {
+    const n = norm(w);
+    for (const [s, v] of NUM_STEMS) if (n.startsWith(s) && n.length - s.length <= 5) return v;
+    return null;
+  }
+  const MONTH_OR_YEAR = new RegExp('^(' + MONTH_RE + '|год\\S*|г\\.?)$', 'i');
+  function numberWords(text) {
+    const tokens = text.split(/(\s+)/); // keep separators
+    const words = tokens.map((t, i) => (i % 2 === 0 ? t : null));
+    const out = tokens.slice();
+    for (let i = 0; i < tokens.length; i += 2) {
+      if (numWord(words[i]) == null) continue;
+      let j = i;
+      let total = 0;
+      let cur = 0;
+      while (j < tokens.length && words[j] != null && numWord(words[j]) != null) {
+        const v = numWord(words[j]);
+        if (v === 1000) {
+          total += (cur || 1) * 1000;
+          cur = 0;
+        } else cur += v;
+        j += 2;
+      }
+      const value = total + cur;
+      const next = (words[j] || '').replace(/[.,;:]+$/, '');
+      const prev = i >= 2 ? (words[i - 2] || '').replace(/[.,;:]+$/, '') : '';
+      if (MONTH_OR_YEAR.test(next) || new RegExp('^' + MONTH_RE + '$', 'i').test(prev)) {
+        out[i] = String(value);
+        for (let k = i + 1; k < j - 1; k++) out[k] = '';
+        i = j - 2;
+      } else i = j - 2;
+    }
+    return out.join('');
   }
 
   global.Parse = { parse, applySide, parseOneDate, dobFromIIN, learnPhrase, fixHeard };

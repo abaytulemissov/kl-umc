@@ -14,8 +14,13 @@ for (const id of ids) {
   const walk = (o) => { if (o && typeof o === 'object') { if (o.src && /^img\//.test(o.src)) images[o.src] = 'data:image/png;base64,' + fs.readFileSync(path.join(ROOT, 'app', o.src)).toString('base64'); Object.values(o).forEach(walk); } };
   walk(tpl);
   const stampFile = process.env.STAMP;
-  const dd = Render.build(tpl, values, { images, stamp: stampFile ? 'data:image/png;base64,' + fs.readFileSync(stampFile).toString('base64') : null });
-  const doc = new PdfPrinter(fonts).createPdfKitDocument(dd);
+  const opts = { images, stamp: stampFile ? 'data:image/png;base64,' + fs.readFileSync(stampFile).toString('base64') : null };
+  let dd = Render.build(tpl, values, opts);
+  let doc = new PdfPrinter(fonts).createPdfKitDocument(dd);
+  if (Render.orphanSignature(doc._pdfMakePages, dd)) {
+    console.log('compact:', id);
+    doc = new PdfPrinter(fonts).createPdfKitDocument(Render.build(tpl, values, { ...opts, compact: true }));
+  }
   doc.pipe(fs.createWriteStream(path.join(out, id + '.pdf'))); doc.end();
 }
 console.log('rendered', ids.length);

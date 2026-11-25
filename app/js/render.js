@@ -125,13 +125,15 @@
 
     if (!runs.length || !runs.some((r) => r.text)) runs = [{ text: ' ' }];
 
-    let before = b.before || 0;
-    let after = b.after || 0;
+    // compact = second attempt when the signature would otherwise end up alone on a new page
+    const k = ctx.compact && region === 'body' ? 0.4 : 1;
+    let before = (b.before || 0) * k;
+    let after = (b.after || 0) * k;
     if (b.contextual && prev && prev.style === b.style) before = 0;
     const left = b.left || 0;
     const right = b.right || 0;
     const firstLine = b.firstLine || 0;
-    let lineHeight = b.line || 1;
+    let lineHeight = (b.line || 1) * (ctx.compact && region === 'body' ? 0.94 : 1);
     if (b.lineExact) lineHeight = Math.max(0.8, b.lineExact / (fs * 1.17));
 
     let node;
@@ -259,8 +261,17 @@
     const out = [];
     let prev = null;
     // optional lines (e.g. "Дата госпитализации") are left out entirely when their field is empty
-    for (const b of tidy((list || []).filter((x) => !x.onlyIf || ctx.has(x.onlyIf)))) {
-      if (b.t === 'p') out.push(paragraph(b, ctx, region, prev));
+    for (const b of tidy((list || []).filter((x) => (!x.onlyIf || ctx.has(x.onlyIf)) && !(x.onlyIfNot && ctx.has(x.onlyIfNot))))) {
+      if (b.t === 'p' && b.keepWithPrev && out.length) {
+        const last = out.pop();
+        const id = last.id;
+        delete last.id;
+        out.push({ stack: [last, paragraph(b, ctx, region, prev)], unbreakable: true, id });
+      } else if (b.t === 'p') {
+        const node = paragraph(b, ctx, region, prev);
+        if (b.sig) node.id = 'sig';
+        out.push(node);
+      }
       else if (b.t === 'table') out.push(table(b, ctx, region));
       prev = b;
     }
@@ -306,6 +317,7 @@
       margins,
       images: opts.images || {},
       stamp: opts.useStamp !== false ? opts.stamp : null,
+      compact: !!opts.compact,
       expand: makeExpander(tpl, values || {}),
       has: (k) => !!(values && values[k] && String(values[k]).trim()),
       counters: {},
@@ -317,7 +329,7 @@
     const headerContent = tpl.header ? blocks(tpl.header, { ...ctx, counters: {} }, 'header') : null;
     const footerContent = tpl.footer ? blocks(tpl.footer, { ...ctx, counters: {} }, 'footer') : null;
 
-    return {
+    const dd = {
       pageSize: { width: p.w, height: p.h },
       pageMargins: margins,
       info: { title: opts.title || tpl.title, author: opts.author || '' },
@@ -327,7 +339,25 @@
       footer: footerContent ? () => ({ stack: footerContent, margin: [p.left, 0, p.right, 0] }) : undefined,
       content,
     };
+    return dd;
   }
 
-  global.Render = { build, formatDate, BLANK };
+  // After layout (pdfmake's pages): did the doctor's signature land at the very top of a new
+  // page, i.e. it spilled over on its own? Then the caller rebuilds with { compact: true }.
+  function orphanSignature(pages, dd) {
+    if (!pages) return false;
+    const top = dd.pageMargins[1];
+    for (let i = 0; i < pages.length; i++) {
+      for (const it of pages[i].items) {
+        const inl = it.item && it.item.inlines;
+        if (!inl) continue;
+        const t = inl.map((x) => x.text).join('');
+        // within the first ~3 lines of a new page = spilled over (alone or with a line or two)
+        if (/Абай Канатович|Тулемисов Абай/.test(t)) return i > 0 && it.item.y - top < 60;
+      }
+    }
+    return false;
+  }
+
+  global.Render = { build, formatDate, BLANK, orphanSignature };
 })(typeof window !== 'undefined' ? window : globalThis);
