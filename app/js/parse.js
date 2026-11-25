@@ -199,8 +199,38 @@
     return false;
   }
 
+  // Typical mishearings of medical words by phone speech recognition (Apple / Google)
+  const HEARD_FIX = [
+    [/кредитн/gi, 'каротидн'],
+    [/х[иеэ]д[иеэ]\s*том/gi, 'хемодектом'],
+  ];
+  function fixHeard(text) {
+    let s = HEARD_FIX.reduce((acc, [re, to]) => acc.replace(re, to), text);
+    // the whole phrase said/sent twice ("А Б А Б") -> once
+    const w = s.trim().split(/\s+/);
+    if (w.length >= 2 && w.length % 2 === 0 && norm(w.slice(0, w.length / 2).join(' ')) === norm(w.slice(w.length / 2).join(' '))) s = w.slice(0, w.length / 2).join(' ');
+    return s;
+  }
+
+  // Phrases the user taught the app: { p: 'кредитная хиде тома', id: '<template id>' }
+  const LEARN_STOP = /^(пациент\S*|больн\S*|года?|лет|рождени\S*|лист\S*|консультативн\S*|шаблон\S*|дата|фио|справа|слева|прав\S*|лев\S*|сегодня|завтра|операц\S*|госпитализ\S*|на|от|и|в|с)$/;
+  const NUM_WORD = /^(перв|втор|трет|четв|пят|шест|седьм|восьм|девят|десят|одиннад|двенад|тринад|четырнад|пятнад|шестнад|семнад|восемнад|девятнад|двадцат|тридцат|сорок|сто|двест|трист|тысяч|двухтысяч|ноль|нул)/;
+  const stem = (w) => w.slice(0, Math.max(4, w.length - 2));
+  function learnPhrase(text, result) {
+    let t = ' ' + norm(fixHeard(text)) + ' ';
+    if (result && result.values && result.values.fio) for (const w of norm(result.values.fio).split(/\s+/)) t = t.split(w).join(' ');
+    t = t.replace(new RegExp(MONTH_RE, 'g'), ' ').replace(/[^a-zа-яәғқңөұүһі\s-]/g, ' ');
+    const words = t.split(/\s+/).filter((w) => w.length >= 3 && !LEARN_STOP.test(w) && !NUM_WORD.test(w));
+    return [...new Set(words)].slice(0, 6).join(' ');
+  }
+  function learnedMatch(text, learned) {
+    const t = norm(text);
+    return (learned || []).filter((l) => l.p && l.p.split(' ').every((w) => t.includes(stem(w))));
+  }
+
   // ------------------------------------------------------------ template choice
-  function scoreTemplates(text, index) {
+  function scoreTemplates(text, index, learned) {
+    const taught = learnedMatch(text, learned);
     const full = norm(text);
     // words dictated after "диагноз" describe the disease, not the template name
     const cut = full.search(/диагноз/);
@@ -218,6 +248,7 @@
       if (/дневн/.test(t) && tpl.group === 'ds') s += 3;
       if (/круглосуточ/.test(t) && tpl.group === 'ks') s += 3;
       if (/платн/.test(t) && tpl.group === 'paid') s += 5;
+      for (const l of taught) if (l.id === tpl.id) s += 50 + l.p.length;
       return { id: tpl.id, title: tpl.title, score: s };
     });
     return scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
@@ -251,10 +282,11 @@
   }
 
   // ------------------------------------------------------------ main
-  function parse(text, index, getTemplate, today) {
+  function parse(text, index, getTemplate, today, learned) {
     today = today || new Date();
-    const result = { values: {}, notes: [], candidates: [] };
-    const candidates = scoreTemplates(text, index);
+    text = fixHeard(text);
+    const result = { values: {}, notes: [], candidates: [], text };
+    const candidates = scoreTemplates(text, index, learned);
     result.candidates = candidates.slice(0, 4);
     result.templateId = candidates[0] ? candidates[0].id : null;
     if (candidates[1] && candidates[1].score === candidates[0].score) result.ambiguous = true;
@@ -263,6 +295,7 @@
 
     const keywordWords = [];
     for (const t of index) for (const k of t.keywords || []) keywordWords.push(...norm(k).split(/\s+/).filter((w) => w.length >= 3));
+    for (const l of learned || []) keywordWords.push(...(l.p || '').split(' ').filter((w) => w.length >= 3).map(stem));
 
     const iin = findIIN(text);
     // remove the IIN digits before looking for dates
@@ -311,5 +344,5 @@
     return d ? d.iso : null;
   }
 
-  global.Parse = { parse, applySide, parseOneDate, dobFromIIN };
+  global.Parse = { parse, applySide, parseOneDate, dobFromIIN, learnPhrase, fixHeard };
 })(typeof window !== 'undefined' ? window : globalThis);

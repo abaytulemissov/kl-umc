@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.1.0';
+  const VERSION = '0.2.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -135,6 +135,15 @@
     // Phones (esp. iPhone Safari) stop listening after every pause. For "continuous" dictation we
     // silently restart recognition until the user taps the mic again or stays silent twice in a row.
     const join = (a, b) => [a, b].map((s) => (s || '').trim()).filter(Boolean).join(' ');
+    const low = (s) => (s || '').trim().toLowerCase();
+    // iOS Safari re-sends the same phrase (as final + interim, or again after a restart): drop repeats
+    const merge = (a, b) => {
+      if (!low(b)) return (a || '').trim();
+      if (!low(a)) return b.trim();
+      if (low(a).endsWith(low(b))) return a.trim();
+      if (low(b).startsWith(low(a))) return b.trim();
+      return join(a, b);
+    };
     let committed = ''; // text from finished recognition runs
     let runs = 0;
     let silentRuns = 0;
@@ -167,10 +176,12 @@
         interim = '';
         for (let i = 0; i < e.results.length; i++) {
           const r = e.results[i];
-          if (r.isFinal) fin = join(fin, r[0].transcript);
-          else interim += r[0].transcript;
+          if (r.isFinal) fin = merge(fin, r[0].transcript);
+          else interim = merge(interim, r[0].transcript);
         }
-        onResult(join(committed, fin), interim);
+        if (low(fin).endsWith(low(interim))) interim = '';
+        else if (low(interim).startsWith(low(fin))) (fin = ''), (interim = interim.trim());
+        onResult(merge(committed, fin), interim);
       };
       rec.onerror = (e) => {
         if (['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(e.error)) fatal = true;
@@ -180,9 +191,9 @@
         else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Ошибка распознавания: ' + e.error);
       };
       rec.onend = () => {
-        const got = join(fin, interim); // iOS sometimes ends without marking the result final
+        const got = merge(fin, interim); // iOS sometimes ends without marking the result final
         if (got) {
-          committed = join(committed, got);
+          committed = merge(committed, got);
           silentRuns = 0;
         } else silentRuns++;
         onResult(committed, '');
@@ -254,15 +265,27 @@
       return;
     }
     await allTemplatesLoaded;
-    const r = Parse.parse(text, state.index, (id) => state.cache[id]);
+    const r = Parse.parse(text, state.index, (id) => state.cache[id], null, store.get('learned', []));
     out.innerHTML = '';
     if (!r.templateId || r.ambiguous) {
       out.hidden = false;
       const cands = r.candidates.length ? r.candidates : [];
       out.append(el('div', null, r.templateId ? 'Подходит несколько шаблонов — выберите:' : 'Не понял, какой нужен шаблон. Выберите:'));
       const choices = el('div', { class: 'choices' });
-      for (const c of cands) choices.append(el('button', { type: 'button', class: 'btn ghost small', onclick: () => openForm(c.id, r) }, c.title));
-      choices.append(el('button', { type: 'button', class: 'btn ghost small', onclick: () => pickTemplate((id) => openForm(id, r)) }, 'Все шаблоны…'));
+      // after a manual choice, offer to remember how the phone heard the template name
+      const chosen = (id) => {
+        const phrase = Parse.learnPhrase(text, r);
+        const tpl = state.index.find((t) => t.id === id);
+        if (phrase && tpl && confirm(`Запомнить, что «${phrase}» — это «${tpl.title}»?\n\nВ следующий раз шаблон определится сам.`)) {
+          const learned = store.get('learned', []).filter((l) => l.p !== phrase);
+          learned.unshift({ p: phrase, id });
+          store.set('learned', learned.slice(0, 100));
+          toast('Запомнил');
+        }
+        openForm(id, r);
+      };
+      for (const c of cands) choices.append(el('button', { type: 'button', class: 'btn ghost small', onclick: () => chosen(c.id) }, c.title));
+      choices.append(el('button', { type: 'button', class: 'btn ghost small', onclick: () => pickTemplate(chosen) }, 'Все шаблоны…'));
       out.append(choices);
       return;
     }
@@ -570,6 +593,21 @@
     $('#speechInfo').textContent = SR
       ? 'Распознавание речи встроено в браузер (бесплатно). В Chrome звук обрабатывается серверами Google, поэтому нужен интернет. Можно также пользоваться микрофоном на клавиатуре телефона.'
       : 'В этом браузере встроенного распознавания нет. Пользуйтесь микрофоном на клавиатуре телефона — текст можно надиктовать в любое поле.';
+    const ll = $('#learnedList');
+    ll.innerHTML = '';
+    const learned = store.get('learned', []);
+    if (!learned.length) ll.append(el('span', { class: 'hint' }, 'Пока нет'));
+    for (const l of learned) {
+      const tpl = state.index.find((t) => t.id === l.id);
+      ll.append(
+        el('div', { class: 'learned-row' },
+          el('span', null, `«${l.p}» → ${tpl ? tpl.title : l.id}`),
+          el('button', { type: 'button', class: 'btn ghost small', 'aria-label': 'Удалить', onclick: () => {
+            store.set('learned', store.get('learned', []).filter((x) => !(x.p === l.p && x.id === l.id)));
+            renderSettings();
+          } }, '✕'))
+      );
+    }
     $('#version').textContent = 'Версия ' + VERSION + ' · данные пациентов не покидают устройство';
   }
   async function loadStampFile(file) {
