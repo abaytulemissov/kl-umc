@@ -79,8 +79,8 @@
       const own = lower.slice(d.index, d.end);
       let kind = null;
       if (d.dobHint || /(рожд|д\.?\s?р\.?\s*[:\-]?\s*$|г\.?\s?р)/.test(before) || /^\s*(года?\s+рожд|г\.?\s?р)/.test(after)) kind = 'dob';
-      else if (/(операц|госпитализ|поступ|явк|на\s*$)/.test(before)) kind = hasOpdate ? 'opdate' : 'date';
-      else if (/(осмотр|консульт|дата\s*$|от\s*$)/.test(before) || /сегодня/.test(own)) kind = 'date';
+      else if (/(операц|госпитализ|поступ|явк|(^|\s)на\s*$)/.test(before)) kind = hasOpdate ? 'opdate' : 'date';
+      else if (/(осмотр|консульт|дата\s*$|(^|\s)от\s*$)/.test(before) || /сегодня/.test(own)) kind = 'date';
       if (!kind) {
         if (d.y && d.y <= today.getFullYear() - 1 && !res.dob) kind = 'dob';
         else if (hasOpdate && !res.opdate && d.iso && d.iso > iso(today.getFullYear(), today.getMonth() + 1, today.getDate())) kind = 'opdate';
