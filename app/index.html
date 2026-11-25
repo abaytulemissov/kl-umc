@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Консультативные листы</title>
+  <meta name="description" content="Консультативные листы UMC: надиктовать → PDF">
+  <meta name="theme-color" content="#b14a4a">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="КЛ UMC">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn" id="backBtn" hidden aria-label="Назад">
+      <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <div class="brand" id="brand">
+      <span class="logo">КЛ</span>
+      <span class="brand-text">Консультативные листы</span>
+    </div>
+    <button class="icon-btn" id="settingsBtn" aria-label="Настройки">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </header>
+
+  <!-- ============ HOME ============ -->
+  <main id="home" class="screen">
+    <section class="card dictate">
+      <h1>Надиктуйте</h1>
+      <p class="hint">Шаблон, ФИО, дату рождения, дату операции — в любом порядке.<br>
+        <span class="example">«Хемодектома слева, Иванов Иван Иванович, 12 марта 1975, Shamblin 2, PUMCH 3»</span></p>
+      <div class="dictate-box">
+        <textarea id="dictText" rows="3" placeholder="Нажмите на микрофон или напишите текст…"></textarea>
+        <button class="mic big" id="dictMic" aria-label="Диктовать">
+          <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>
+        </button>
+      </div>
+      <p class="mic-status" id="micStatus" hidden></p>
+      <button class="btn primary wide" id="parseBtn">Сформировать лист</button>
+      <div id="parseResult" class="parse-result" hidden></div>
+    </section>
+
+    <section id="recentSection" class="section" hidden>
+      <h2>Недавние</h2>
+      <div id="recentList" class="recent-list"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>Шаблоны</h2>
+        <input type="search" id="search" placeholder="Поиск…" autocomplete="off">
+      </div>
+      <div id="templateList"></div>
+    </section>
+  </main>
+
+  <!-- ============ FORM ============ -->
+  <main id="form" class="screen" hidden>
+    <div class="form-layout">
+      <div class="form-col">
+        <div class="card">
+          <div class="tpl-head">
+            <div>
+              <div class="tpl-group" id="tplGroup"></div>
+              <h1 id="tplTitle"></h1>
+            </div>
+            <button class="btn ghost small" id="changeTpl">Сменить</button>
+          </div>
+          <div class="notes" id="formNotes" hidden></div>
+          <form id="fields" autocomplete="off" onsubmit="return false"></form>
+          <label class="switch" id="stampRow">
+            <input type="checkbox" id="useStamp">
+            <span>Печать и подпись</span>
+            <small id="stampHint"></small>
+          </label>
+        </div>
+      </div>
+      <div class="preview-col" id="previewCol">
+        <div class="preview-frame">
+          <iframe id="preview" title="Предпросмотр PDF"></iframe>
+          <div class="preview-loading" id="previewLoading">Готовлю предпросмотр…</div>
+        </div>
+      </div>
+    </div>
+    <div class="actionbar">
+      <button class="btn ghost" id="previewBtn">Просмотр</button>
+      <button class="btn ghost" id="downloadBtn">Скачать</button>
+      <button class="btn primary" id="shareBtn">Поделиться PDF</button>
+    </div>
+  </main>
+
+  <!-- ============ SETTINGS ============ -->
+  <dialog id="settings">
+    <form method="dialog" class="dialog-body">
+      <h2>Настройки</h2>
+      <h3>Печать и подпись</h3>
+      <p class="hint">Изображение хранится только на этом устройстве и никуда не отправляется.
+        Загрузите PNG с прозрачным фоном (печать с подписью).</p>
+      <div class="stamp-box">
+        <img id="stampImg" alt="" hidden>
+        <span id="stampNone">Не загружена</span>
+      </div>
+      <div class="row">
+        <label class="btn ghost small file-btn">Загрузить…<input type="file" id="stampFile" accept="image/*" hidden></label>
+        <button type="button" class="btn ghost small" id="stampRemove">Удалить</button>
+      </div>
+      <h3>Голосовой ввод</h3>
+      <p class="hint" id="speechInfo"></p>
+      <h3>История</h3>
+      <p class="hint">Последние 20 листов сохраняются только на этом устройстве, чтобы их можно было быстро повторить.</p>
+      <div class="row">
+        <button type="button" class="btn ghost small" id="clearHistory">Очистить историю</button>
+      </div>
+      <p class="hint version" id="version"></p>
+      <div class="row end"><button class="btn primary">Готово</button></div>
+    </form>
+  </dialog>
+
+  <!-- ============ TEMPLATE PICKER ============ -->
+  <dialog id="picker">
+    <form method="dialog" class="dialog-body">
+      <h2>Выберите шаблон</h2>
+      <div id="pickerList"></div>
+      <div class="row end"><button class="btn ghost">Отмена</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="vendor/pdfmake.min.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/parse.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
