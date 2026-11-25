@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION whenever app files change.
-const VERSION = 'kl-v0.1.0';
+const VERSION = 'kl-v0.1.1';
 const CORE = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/render.js', 'js/parse.js',
   'vendor/pdfmake.min.js', 'manifest.webmanifest', 'icons/icon.svg',
@@ -8,7 +8,7 @@ const CORE = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -22,7 +22,8 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(req)
+    // 'no-cache' = always revalidate with the server (GitHub Pages sets max-age=600), so updates arrive immediately
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
