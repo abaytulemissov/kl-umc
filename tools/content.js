@@ -9,7 +9,23 @@ const isBand = (b) => b && b.t === 'p' && !!b.fill;
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 // ---------------------------------------------------------------- per-sheet diagnosis / operation
-// Side words (правой/левой, справа/слева) make the app show the «Сторона» switch.
+// Side words (правой/левой, справа/слева, с обеих сторон) follow the «Сторона» switch on SIDE_SHEETS.
+// Sheets with the «Сторона» switch (agreed with the doctor); every other sheet has none.
+const SIDE_SHEETS = [
+  'portal-oir-ks-balloonangioplasty',
+  'portal-oir-ks-renalarterystenting',
+  'portal-oir-ks-stenting-sublavia',
+  'portal-oir-ks-spsh',
+  'portal-oir-ks-patologicheskaya-izvitost-a-carotica-internaa',
+  'portal-oir-ks-karotidnaya-endarterektomiya',
+  'portal-oir-ks-hemodektoma',
+  'portal-oir-ks-varikocele',
+  'portal-oir-ks-vbvt',
+  'portal-oir-ks-vbnk',
+  'portal-oir-ds-vbnk',
+  'platno-oir-ds',
+  'portal-oir-ks-gae',
+];
 const DEFAULTS = {
   'portal-oir-ks-renalarterystenting': {
     diagnosis: 'I70.1 – Атеросклероз. Стеноз правой почечной артерии. Вазоренальная гипертензия.',
@@ -25,9 +41,16 @@ const DEFAULTS = {
     operation: '39.793 – Баллонная ангиопластика',
   },
   'portal-oir-ks-vbnk': {
-    diagnosis: 'I83.1 – ВБНК. Варикозное расширение большой подкожной вены. C4.',
-    operation: '39.7900 – Радиочастотная абляция большой подкожной вены (РЧА БПВ)',
+    diagnosis: 'I83.1 – ВБНК. Варикозное расширение большой подкожной вены справа. C4.',
+    operation: '39.7900 – Радиочастотная абляция большой подкожной вены справа (РЧА БПВ)',
   },
+  'portal-oir-ks-karotidnaya-endarterektomiya': {
+    diagnosis: 'I65.2 – Атеросклероз. Критический стеноз правой внутренней сонной артерии. ХСМН.',
+    operation: '38.121 – Каротидная эндартерэктомия из правой ВСА',
+  },
+  'portal-oir-ks-hemodektoma': { operation: '38.621 – Эмболизация каротидной хемодектомы справа с её последующей резекцией' },
+  'portal-oir-ks-gae': { operation: '39.794 – Эмболизация коленных артерий с обеих сторон.' },
+  'platno-oir-ds': { diagnosis: 'Варикозная болезнь. Первичное варикозное расширение вен нижних конечностей с обеих сторон. CEAP: С3S, Еp, Аs, Рr, L1.' },
   'portal-oir-ks-stenting-sublavia': {
     diagnosis: 'I70.2 – Стеноз левой подключичной артерии.',
     operation: '39.792 – Стентирование левой подключичной артерии',
@@ -49,7 +72,10 @@ const DEFAULTS = {
     operation: '38.121 – Редрессация правой внутренней сонной артерии',
   },
   'portal-oir-ks-thpn-avf': { diagnosis: 'N18.0 – Терминальная хроническая почечная недостаточность.' },
-  'portal-oir-ds-vbnk': { operation: '39.92 Эндовенозная лазерная коагуляция' },
+  'portal-oir-ds-vbnk': {
+    diagnosis: 'I83.9 – Варикозная болезнь нижних конечностей. Варикозное расширение подкожных вен нижних конечностей с обеих сторон. CEAP: C3s Ep As Pr.',
+    operation: '39.92 Эндовенозная лазерная коагуляция с обеих сторон',
+  },
   'portal-oir-ds-sklero': { operation: '39.92 Склеротерапия ретикулярных вен и телеангиоэктазий нижних конечностей' },
 };
 
@@ -341,10 +367,8 @@ function editContent(tpl) {
   }
   signature(tpl);
   if (id === 'portal-oir-ks-detskie') childPage2(tpl);
-  if (id === 'portal-oir-ks-balloonangioplasty') {
-    tpl.sideAware = true;
-    tpl.dxBuilder = 'limb';
-  }
+  tpl.sideAware = SIDE_SHEETS.includes(id);
+  if (id === 'portal-oir-ks-balloonangioplasty') tpl.dxBuilder = 'limb';
 }
 
 module.exports = { editContent };

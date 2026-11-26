@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.7.2';
+  const VERSION = '0.8.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -475,8 +475,8 @@
       v[k] = k === 'diagnosis' || k === 'operation' ? toDisplay(pv[k]) : pv[k];
     }
     const notes = [];
-    // templates that mention a side get one "Сторона" switch; all side words in the sheet follow it
-    state.sideAware = !!tpl.sideAware || (({ right, left }) => right || left)(Render.sides(JSON.stringify(tpl)));
+    // only the sheets marked sideAware (tools/content.js) get the "Сторона" switch
+    state.sideAware = !!tpl.sideAware;
     v.side = '';
     if (state.sideAware) {
       v.side = (parsed && parsed.side) || Render.sideOf(pv.diagnosis) || '';
