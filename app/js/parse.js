@@ -318,8 +318,9 @@
     const sd = global.Render && global.Render.sides
       ? global.Render.sides(lower)
       : { left: /слева|левой|левая|левую/.test(lower), right: /справа|правой|правая|правую/.test(lower) };
-    if (sd.left && !sd.right) result.side = 'left';
-    if (sd.right && !sd.left) result.side = 'right';
+    if (sd.both) result.side = 'both';
+    else if (sd.left && !sd.right) result.side = 'left';
+    else if (sd.right && !sd.left) result.side = 'right';
 
     Object.assign(result.values, findGrades(text, tpl));
 

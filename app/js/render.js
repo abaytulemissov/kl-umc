@@ -30,21 +30,40 @@
   const NL = '(^|[^А-Яа-яЁё])', NR = '(?![А-Яа-яЁё])';
   const ADV = new RegExp(NL + '([Сс])(права|лева)' + NR, 'g');
   const ADJ = new RegExp(NL + '(Прав|прав|Лев|лев)(ая|ой|ую|ое|ого|ому|ом|ые|ых|ым|ыми|ый)' + NR, 'g');
+  // both sides, as written by applySide(…, 'both') or said explicitly
+  const ADJ_END = '(ая|ой|ую|ое|ого|ому|ом|ые|ых|ым|ыми|ый)';
+  const BOTH_ADJ = new RegExp(NL + '(Прав|прав|Лев|лев)' + ADJ_END + '\\s+и\\s+(?:прав|лев)' + ADJ_END + NR, 'g');
+  const BOTH_ADV = new RegExp(NL + '([Сс])\\s+обеих\\s+сторон' + NR, 'g');
+  const BOTH_SAID = /с\s+обеих\s+сторон|с\s+двух\s+сторон|двусторонн|билатерал/i;
+  // "правой и левой" → "правой", "с обеих сторон" → "справа" (so a side can be applied again)
+  const collapse = (t) =>
+    String(t)
+      .replace(BOTH_ADJ, (m, p, w, end) => p + w + end)
+      .replace(BOTH_ADV, (m, p, c) => p + c + 'права');
   function sides(text) {
-    const s = { right: false, left: false };
-    String(text || '').replace(ADV, (m, p, c, w) => ((s[w === 'права' ? 'right' : 'left'] = true), m));
-    String(text || '').replace(ADJ, (m, p, w) => ((s[/^п/i.test(w) ? 'right' : 'left'] = true), m));
+    const s = { right: false, left: false, both: false };
+    const t = String(text || '');
+    if (BOTH_SAID.test(t) || BOTH_ADJ.test(t)) s.both = true;
+    BOTH_ADJ.lastIndex = 0;
+    t.replace(ADV, (m, p, c, w) => ((s[w === 'права' ? 'right' : 'left'] = true), m));
+    t.replace(ADJ, (m, p, w) => ((s[/^п/i.test(w) ? 'right' : 'left'] = true), m));
     return s;
   }
-  // the single side named in the text, or '' (none or both)
+  // 'right' | 'left' | 'both' (only when said explicitly) | '' (none, or unclear)
   function sideOf(text) {
     const s = sides(text);
+    if (s.both) return 'both';
     return s.right && !s.left ? 'right' : s.left && !s.right ? 'left' : '';
   }
   function applySide(text, side) {
-    if (!text || (side !== 'left' && side !== 'right')) return text;
+    if (!text || !['left', 'right', 'both'].includes(side)) return text;
+    const t = collapse(text);
+    if (side === 'both')
+      return t
+        .replace(ADV, (m, p, c) => p + c + ' обеих сторон')
+        .replace(ADJ, (m, p, w, end) => p + (w[0] === w[0].toUpperCase() ? 'Прав' : 'прав') + end + ' и лев' + end);
     const L = side === 'left';
-    return String(text)
+    return t
       .replace(ADV, (m, p, c) => p + c + (L ? 'лева' : 'права'))
       .replace(ADJ, (m, p, w, end) => {
         const up = w[0] === w[0].toUpperCase();

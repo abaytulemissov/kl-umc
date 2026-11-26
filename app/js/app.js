@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.0';
+  const VERSION = '0.5.1';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -426,7 +426,7 @@
     if (state.sideAware) {
       v.side = (parsed && parsed.side) || Render.sideOf(pv.diagnosis) || '';
       if (v.side) for (const k of ['diagnosis', 'operation']) if (v[k]) v[k] = Render.applySide(v[k], v.side);
-      if (parsed && !v.side) notes.push('Сторона не названа — выберите «Справа» или «Слева» в поле «Сторона».');
+      if (parsed && !v.side) notes.push('Сторона не названа — выберите «Справа», «Слева» или обе в поле «Сторона».');
     }
     if (parsed && parsed.opCode && tpl.fields.some((f) => f.key === 'operation')) {
       const def = (tpl.fields.find((f) => f.key === 'operation').default || '').trim();
@@ -466,14 +466,26 @@
     const row = $('#sideRow');
     if (!row) return;
     row.classList.toggle('need', !state.values.side);
-    row.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.side === state.values.side));
+    const s = state.values.side;
+    row.querySelectorAll('button').forEach((b) => {
+      const on = s === 'both' || b.dataset.side === s;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+  // each button switches on/off by itself; both on = "с обеих сторон"
+  function toggleSide(side) {
+    const s = state.values.side;
+    const on = { right: s === 'right' || s === 'both', left: s === 'left' || s === 'both' };
+    on[side] = !on[side];
+    setSide(on.right && on.left ? 'both' : on.right ? 'right' : on.left ? 'left' : '');
   }
   function sideField() {
-    const b = (side, text) => el('button', { type: 'button', class: 'side-btn', 'data-side': side, onclick: () => setSide(side) }, text);
+    const b = (side, text) => el('button', { type: 'button', class: 'side-btn', 'data-side': side, 'aria-pressed': 'false', onclick: () => toggleSide(side) }, text);
     return el('div', { class: 'field side-field', id: 'sideRow' },
       el('label', {}, 'Сторона'),
       el('div', { class: 'side-switch' }, b('right', 'Справа'), b('left', 'Слева')),
-      el('div', { class: 'sub' }, 'Диагноз, операция и текст рекомендаций меняются под выбранную сторону.'));
+      el('div', { class: 'sub' }, 'Можно выбрать обе — тогда в листе будет «с обеих сторон» / «правой и левой». Диагноз, операция и рекомендации меняются сами.'));
   }
 
   function renderFields() {
@@ -689,7 +701,7 @@
       return false;
     }
     if (state.sideAware && !state.values.side) {
-      toast('Выберите сторону: «Справа» или «Слева»');
+      toast('Выберите сторону: «Справа», «Слева» или обе');
       $('#sideRow') && $('#sideRow').scrollIntoView({ block: 'center', behavior: 'smooth' });
       return false;
     }
