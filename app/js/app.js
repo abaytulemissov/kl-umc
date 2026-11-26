@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.1';
+  const VERSION = '0.7.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -476,7 +476,7 @@
     }
     const notes = [];
     // templates that mention a side get one "Сторона" switch; all side words in the sheet follow it
-    state.sideAware = (({ right, left }) => right || left)(Render.sides(JSON.stringify(tpl)));
+    state.sideAware = !!tpl.sideAware || (({ right, left }) => right || left)(Render.sides(JSON.stringify(tpl)));
     v.side = '';
     if (state.sideAware) {
       v.side = (parsed && parsed.side) || Render.sideOf(pv.diagnosis) || '';
@@ -493,6 +493,10 @@
       const miss = tpl.fields.filter((f) => ['fio', 'dob'].includes(f.key) && !v[f.key]).map((f) => f.label);
       if (miss.length) notes.push('Не распознано: ' + miss.join(', ') + '. Заполните вручную или голосом.');
     }
+    if (tpl.dxBuilder) {
+      v.dxb = (parsed && Builder.fromText(parsed.text)) || Builder.empty();
+      if (Builder.used(v.dxb)) v.diagnosis = Builder.compose(v.dxb, v.side);
+    }
     state.values = v;
     $('#formNotes').hidden = !notes.length;
     $('#formNotes').textContent = notes.join(' ');
@@ -508,6 +512,7 @@
 
   function setSide(side) {
     state.values.side = side;
+    if (state.tpl.dxBuilder && Builder.used(state.values.dxb)) state.values.diagnosis = Builder.compose(state.values.dxb, side);
     for (const k of ['diagnosis', 'operation']) {
       if (!state.values[k]) continue;
       state.values[k] = Render.applySide(state.values[k], side);
@@ -541,6 +546,67 @@
       el('label', {}, 'Сторона'),
       el('div', { class: 'side-switch' }, b('right', 'Справа'), b('left', 'Слева')),
       el('div', { class: 'sub' }, 'Можно выбрать обе — тогда в листе будет «с обеих сторон» / «правой и левой». Диагноз, операция и рекомендации меняются сами.'));
+  }
+
+  // ---- diagnosis builder (balloon angioplasty): level, lesion, ХАН; the side comes from the «Сторона» switch
+  const Builder = {
+    LEVELS: [['iliac', 'Подвздошный', 'подвздошного'], ['femoral', 'Бедренный', 'бедренного'], ['popliteal', 'Подколенный', 'подколенного'], ['tibial', 'Тибиальный', 'тибиального']],
+    LESIONS: [['stenosis', 'Стеноз'], ['occlusion', 'Окклюзия']],
+    KHAN: ['I', 'II', 'III', 'IV'],
+    BASE: 'I70.2 – Атеросклероз артерий нижних конечностей.',
+    empty: () => ({ levels: [], lesions: [], khan: '' }),
+    used: (b) => !!b && (b.levels.length > 0 || b.lesions.length > 0 || !!b.khan),
+    compose(b, side) {
+      const parts = [Builder.BASE];
+      const lv = Builder.LEVELS.filter(([k]) => b.levels.includes(k)).map((x) => x[2]);
+      const ls = Builder.LESIONS.filter(([k]) => b.lesions.includes(k)).map((x) => x[1]);
+      if (lv.length || ls.length) {
+        const what = ls.length ? ls.map((x, i) => (i ? x.toLowerCase() : x)).join(' и ') : 'Поражение';
+        const where = lv.length ? ' ' + (lv.length > 1 ? lv.slice(0, -1).join(', ') + ' и ' + lv[lv.length - 1] : lv[0]) + (lv.length > 1 ? ' сегментов' : ' сегмента') : '';
+        const sd = side === 'right' ? ' справа' : side === 'left' ? ' слева' : side === 'both' ? ' с обеих сторон' : '';
+        parts.push(what + where + sd + '.');
+      }
+      if (b.khan) parts.push('ХАН ' + b.khan + ' ст.');
+      return parts.join(' ');
+    },
+    // from the dictated text: "окклюзия бедренного и подколенного сегмента справа, хан 3"
+    fromText(text) {
+      const t = (text || '').toLowerCase();
+      const b = Builder.empty();
+      if (/подвздош/.test(t)) b.levels.push('iliac');
+      if (/бедрен/.test(t)) b.levels.push('femoral');
+      if (/подколен/.test(t)) b.levels.push('popliteal');
+      if (/тибиал|берцов/.test(t)) b.levels.push('tibial');
+      if (/стеноз/.test(t)) b.lesions.push('stenosis');
+      if (/окклюз/.test(t)) b.lesions.push('occlusion');
+      const m = t.match(/(?:хан|х\.а\.н|ишеми[яи]|степен[ьи])\D{0,10}(iv|i{1,3}|[1-4])(?![0-9a-z])/);
+      if (m) b.khan = /^\d$/.test(m[1]) ? Builder.KHAN[+m[1] - 1] : m[1].toUpperCase();
+      return Builder.used(b) ? b : null;
+    },
+  };
+  let paintBuilder = () => {};
+  function builderPanel(input, update) {
+    const b = () => state.values.dxb || (state.values.dxb = Builder.empty());
+    const apply = () => {
+      input.value = Builder.compose(b(), state.values.side);
+      paintBuilder();
+      update();
+    };
+    const chip = (label, isOn, toggle) => {
+      const c = el('button', { type: 'button', class: 'chip', onclick: () => (toggle(), apply()) }, label);
+      c._on = isOn;
+      return c;
+    };
+    const flip = (arr, k) => (arr.includes(k) ? arr.splice(arr.indexOf(k), 1) : arr.push(k));
+    const row = (title, chips) => el('div', { class: 'dxb-row' }, el('span', { class: 'dxb-title' }, title), el('div', { class: 'chips' }, ...chips));
+    const panel = el('div', { class: 'dxb' },
+      row('Уровень', Builder.LEVELS.map(([k, label]) => chip(label, () => b().levels.includes(k), () => flip(b().levels, k)))),
+      row('Поражение', Builder.LESIONS.map(([k, label]) => chip(label, () => b().lesions.includes(k), () => flip(b().lesions, k)))),
+      row('ХАН', Builder.KHAN.map((k) => chip(k, () => b().khan === k, () => (b().khan = b().khan === k ? '' : k)))),
+      el('div', { class: 'sub' }, 'Отметьте — диагноз соберётся сам. Сторону берём из поля «Сторона». Текст можно поправить вручную или надиктовать.'));
+    paintBuilder = () => panel.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c._on()));
+    paintBuilder();
+    return panel;
   }
 
   function renderFields() {
@@ -605,8 +671,13 @@
       mic.addEventListener('pointerdown', () => (base.v = input.value));
       const reset = el('button', { type: 'button', class: 'btn ghost small', hidden: true, onclick: () => {
         input.value = Render.applySide(toDisplay(f.default || ''), state.values.side);
+        if (f.key === 'diagnosis' && state.tpl.dxBuilder) {
+          state.values.dxb = Builder.empty();
+          paintBuilder();
+        }
         update();
       } }, 'Вернуть из шаблона');
+      if (f.key === 'diagnosis' && state.tpl.dxBuilder) wrap.append(builderPanel(input, update));
       wrap.append(el('div', { class: 'row-input' }, input, mic));
       if (f.key === 'diagnosis' || f.key === 'operation') {
         reset.hidden = (state.values[f.key] || '') === Render.applySide(toDisplay(f.default || ''), state.values.side);

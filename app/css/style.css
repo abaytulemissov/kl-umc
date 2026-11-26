@@ -238,3 +238,15 @@ dialog::backdrop { background: rgba(20, 15, 12, .45); }
   transform: scale(calc(.7 + .3 * var(--reveal))); transition: transform .15s; }
 .recent-row.armed .recent-trash svg { transform: scale(1.25); }
 .recent-row.removing { transition: opacity .22s; opacity: 0; }
+
+/* ---------- diagnosis builder ---------- */
+.dxb { border: 1px solid var(--line); border-radius: 12px; padding: .6rem .7rem; margin-bottom: .5rem; background: var(--card); }
+.dxb-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .45rem; flex-wrap: wrap; }
+.dxb-title { width: 5.6rem; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; flex: 1; }
+.chip {
+  border: 1.5px solid var(--line); background: transparent; color: inherit; border-radius: 999px;
+  padding: .35rem .75rem; font-size: .9rem; cursor: pointer;
+}
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dxb .sub { margin-top: .1rem; }

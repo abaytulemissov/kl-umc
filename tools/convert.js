@@ -1024,6 +1024,7 @@ function group(name) {
 // The GAE sheet's second page ("Правила при госпитализации в отделение" + "Необходимые личные вещи…")
 // is the standard: every sheet gets it on a page of its own. Items a sheet listed that the standard
 // does not cover (compression stockings, an elastic bandage, a sclerotherapy drug…) are kept.
+const { editContent } = require('./content');
 const STD_ID = 'portal-oir-ks-gae';
 const QR_SRC = 'img/d470b6c7.png'; // "оставить отзыв" QR code
 const COMMON_ITEM = /ногт|ресниц|украшени|станок|бритв|кружк|ложк|тапоч|одежд|документ|направлени|препарат[а-я]* с указ|столов|пациенту необходимо/i;
@@ -1129,6 +1130,11 @@ function main() {
       } catch (e) {
         console.log('page2 FAIL', tpl.id, e.message);
       }
+    }
+    try {
+      editContent(tpl);
+    } catch (e) {
+      console.log('content FAIL', tpl.id, e.stack);
     }
     // OneDrive sometimes locks a file for a moment: retry
     for (let k = 0; ; k++) {
