@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.8.0';
+  const VERSION = '0.8.1';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -878,19 +878,65 @@
     }
   }
 
+  // Preview inside the app. A new window (window.open + blob URL) stays "about:blank"
+  // in the iPhone home-screen app, so the pages are drawn here with pdf.js.
+  let pdfjsReady;
+  function loadPdfjs() {
+    if (!pdfjsReady)
+      pdfjsReady = new Promise((res, rej) => {
+        const s = el('script', { src: 'vendor/pdfjs/pdf.min.js' });
+        s.onload = () => {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js';
+          res(window.pdfjsLib);
+        };
+        s.onerror = () => {
+          pdfjsReady = null;
+          rej(new Error('нет связи для загрузки просмотрщика'));
+        };
+        document.head.append(s);
+      });
+    return pdfjsReady;
+  }
   async function openPreview() {
-    // open the window synchronously (popup blockers), fill it when the PDF is ready
-    const win = window.open('', '_blank');
+    const view = $('#pdfView');
+    const pages = $('#pdfPages');
+    pages.innerHTML = '<div class="pdf-msg">Готовлю PDF…</div>';
+    view.hidden = false;
+    history.pushState({ pdf: true }, '');
     try {
-      const blob = await getBlob();
-      const url = URL.createObjectURL(blob);
-      if (win) win.location.href = url;
-      else location.href = url;
+      const [blob, pdfjsLib] = await Promise.all([getBlob(), loadPdfjs()]);
+      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), isEvalSupported: false }).promise;
+      if (view.hidden) return;
+      pages.innerHTML = '';
+      const ratio = Math.min(window.devicePixelRatio || 1, 3);
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const css = Math.min(pages.clientWidth - 16, 820);
+        const vp = page.getViewport({ scale: (css / page.getViewport({ scale: 1 }).width) * ratio });
+        const c = el('canvas');
+        c.width = Math.floor(vp.width);
+        c.height = Math.floor(vp.height);
+        pages.append(c);
+        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      }
     } catch (e) {
-      if (win) win.close();
-      toast('Не удалось создать PDF: ' + e.message, 5000);
+      console.error(e);
+      pages.innerHTML = '';
+      pages.append(el('div', { class: 'pdf-msg' }, 'Не удалось показать PDF: ' + e.message));
     }
   }
+  function closePreview() {
+    if ($('#pdfView').hidden) return;
+    $('#pdfView').hidden = true;
+    $('#pdfPages').innerHTML = '';
+    if (history.state && history.state.pdf) history.back();
+  }
+  window.addEventListener('popstate', () => {
+    if (!$('#pdfView').hidden) {
+      $('#pdfView').hidden = true;
+      $('#pdfPages').innerHTML = '';
+    }
+  });
 
   // =============================================================== settings
   function renderSettings() {
@@ -1025,6 +1071,8 @@
     $('#downloadBtn').addEventListener('click', download);
     $('#shareBtn').addEventListener('click', share);
     $('#previewBtn').addEventListener('click', openPreview);
+    $('#pdfClose').addEventListener('click', closePreview);
+    $('#pdfShare').addEventListener('click', share);
 
     $('#settingsBtn').addEventListener('click', () => {
       renderSettings();

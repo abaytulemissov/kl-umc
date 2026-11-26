@@ -94,6 +94,16 @@
     </div>
   </main>
 
+  <!-- ============ PDF VIEWER (inside the app: on iPhone a new window can't show the PDF) ============ -->
+  <div class="pdf-view" id="pdfView" hidden>
+    <div class="pdf-bar">
+      <button type="button" class="btn ghost small" id="pdfClose">‹ Назад</button>
+      <span class="pdf-title">Просмотр</span>
+      <button type="button" class="btn primary small" id="pdfShare">Поделиться</button>
+    </div>
+    <div class="pdf-pages" id="pdfPages"></div>
+  </div>
+
   <!-- ============ SETTINGS ============ -->
   <dialog id="settings">
     <form method="dialog" class="dialog-body">
