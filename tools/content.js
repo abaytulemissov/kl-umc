@@ -91,6 +91,8 @@ const ROW_FOR = {
   'portal-oir-ks-spsh': [[/^КТ грудной и брюшной аорты.*/, 'КТ-ангиография брахиоцефальных артерий и дуги аорты с контрастированием']],
   'portal-oir-ks-port-sistema': [[/\s*\(при наличии диуреза\)/, '']],
 };
+// rows that must not be on a sheet
+const ROW_DROP = { 'portal-oir-ks-gae': /ФГДС|гастроскоп/i };
 function term(s) {
   s = s.trim().replace(/^(не более|до)\s*/i, '').replace(/-го/, '');
   const m = s.match(/^(\d+)\s*(дн|мес)/i);
@@ -145,6 +147,7 @@ function analysesTable(tpl) {
   }
   if (!rows.length) return;
   rows = rows.map(([n, d]) => normRow(tpl.id, n, d));
+  if (ROW_DROP[tpl.id]) rows = rows.filter(([n]) => !ROW_DROP[tpl.id].test(n));
   const colW = tpl.page.w - tpl.page.left - tpl.page.right;
   const p = (text) => ({ t: 'p', runs: text ? [{ text, fontSize: fs }] : [], fs, after: 0, line: 1 });
   const table = {
@@ -187,6 +190,23 @@ const ARRIVAL = 'Явка на госпитализацию: с 08:30 до 12:00
 function arrival(tpl) {
   const b = tpl.body.find((x) => /^Явка на госпитализацию/.test(textOf(x).trim()));
   if (b) b.runs = [{ text: ARRIVAL, bold: true, fontSize: b.fs || 12 }];
+}
+
+// ---------------------------------------------------------------- closing notes after the analyses (round-the-clock hospital)
+const CLOSE_1 = 'При патологическом изменении параметров в анализах или исследованиях – дополнительная консультация профильных специалистов и проведение лечения;';
+const CLOSE_2 = 'При отсутствии анализов (параметров) или исследований – принимающий доктор вправе отказать в госпитализации в стационар, а талон на госпитализацию – аннулируется.';
+function closingNotes(tpl) {
+  const body = tpl.body;
+  const ti = body.findIndex((b) => b.t === 'table' && b.rows.length > 5);
+  const ai = body.findIndex((b) => /^Явка на госпитализацию/.test(textOf(b).trim()));
+  if (ti < 0 || ai < ti) return;
+  const keep = [];
+  for (let i = ti + 1; i < ai; i++) {
+    const t = textOf(body[i]).trim();
+    if (t && !/^При (наличии|выявлении|патологическом|отсутствии)/.test(t)) keep.push(t);
+  }
+  const p = (text) => ({ t: 'p', runs: [{ text, fontSize: 12 }], fs: 12, align: 'justify', left: 0, before: 6, after: 0, line: 1 });
+  body.splice(ti + 1, ai - ti - 1, p(CLOSE_1), ...keep.map(p), p(CLOSE_2));
 }
 
 // ---------------------------------------------------------------- signature line
@@ -313,7 +333,10 @@ function editContent(tpl) {
   while (ti >= 0 && tpl.body[ti + 1] && tpl.body[ti + 1].t === 'p' && !textOf(tpl.body[ti + 1]).trim() && !tpl.body[ti + 1].images && !tpl.body[ti + 1].sig)
     tpl.body.splice(ti + 1, 1);
   if (tpl.group === 'ks') dateOnTop(tpl);
-  if (tpl.group === 'ks' && id !== 'portal-oir-ks-detskie') arrival(tpl);
+  if (tpl.group === 'ks' && id !== 'portal-oir-ks-detskie') {
+    arrival(tpl);
+    closingNotes(tpl);
+  }
   signature(tpl);
   if (id === 'portal-oir-ks-detskie') childPage2(tpl);
   if (id === 'portal-oir-ks-balloonangioplasty') {
