@@ -327,6 +327,8 @@ function editContent(tpl) {
       tpl.body.splice(i, 1);
     }
   }
+  // no phone number in the footer
+  if (tpl.footer) tpl.footer = tpl.footer.filter((b) => !/^Тел\.?:/.test(textOf(b).trim()));
   analysesTable(tpl);
   // no blank line right after the analyses table
   const ti = tpl.body.findIndex((b) => b.t === 'table' && b.rows.length > 5);
