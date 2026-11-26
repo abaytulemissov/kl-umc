@@ -1020,10 +1020,90 @@ function group(name) {
   return { id: 'other', title: 'Другое' };
 }
 
+// ---------------------------------------------------------------- standard page 2
+// The GAE sheet's second page ("Правила при госпитализации в отделение" + "Необходимые личные вещи…")
+// is the standard: every sheet gets it on a page of its own. Items a sheet listed that the standard
+// does not cover (compression stockings, an elastic bandage, a sclerotherapy drug…) are kept.
+const STD_ID = 'portal-oir-ks-gae';
+const COMMON_ITEM = /ногт|ресниц|украшени|станок|бритв|кружк|ложк|тапоч|одежд|документ|направлени|препарат[а-я]* с указ|столов|пациенту необходимо/i;
+const THINGS_RE = /вещ|с собой/i;
+const isBand = (b) => !!b.fill;
+const blank = (b) => !textOf(b).trim() && !(b.images && b.images.length) && b.t === 'p';
+function standardPart(gae) {
+  const i = gae.body.findIndex((b) => isBand(b) && /^Правила при госпитализации/i.test(textOf(b).trim()));
+  if (i < 0) throw new Error('GAE: standard page 2 not found');
+  // own numbering ids, so the lists never continue a sheet's own numbering
+  return JSON.parse(JSON.stringify(gae.body.slice(i)), (k, v) => (k === 'num' && v && v.id ? { ...v, id: 'std-' + v.id } : v));
+}
+function applyStandardPage2(tpl, std) {
+  const body = tpl.body;
+  const extras = [];
+  const take = (from) => {
+    // items of a "things" section: up to the next band / the signature / an empty line before the signature
+    let j = from + 1;
+    for (; j < body.length && !isBand(body[j]) && !body[j].sig; j++) {
+      const t = textOf(body[j]).trim();
+      if (!t) {
+        if (body.slice(j + 1).every((b) => blank(b)) || (body[j + 1] && body[j + 1].sig)) break;
+        continue;
+      }
+      for (const part of t.split(/,\s+(?=[А-ЯЁ0-9])/)) {
+        const x = part.replace(/[\s,;.]+$/, '').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').trim();
+        if (x && !COMMON_ITEM.test(x) && !extras.some((e) => e.toLowerCase() === x.toLowerCase())) extras.push(x);
+      }
+    }
+    return j;
+  };
+  const sig = body.findIndex((b) => b.sig);
+  if (sig < 0) throw new Error('no signature line');
+  // 1) things sections above the signature (day-hospital sheets) — remove, keep their special items
+  for (let i = sig - 1; i >= 0; i--) {
+    if (isBand(body[i]) && THINGS_RE.test(textOf(body[i]))) {
+      const end = take(i);
+      // the list made room for the stamp above the signature: keep that room with a blank line
+      body.splice(i, end - i, { t: 'p', fs: 12, after: 0, line: 1, runs: [] });
+    }
+  }
+  const s2 = body.findIndex((b) => b.sig);
+  // 2) everything after the signature: keep "(подпись…)/Дата:" lines and the QR picture, collect special items
+  const tail = body.slice(s2 + 1);
+  tail.forEach((b, k) => isBand(b) && THINGS_RE.test(textOf(b)) && take(s2 + 1 + k));
+  const keep = [];
+  for (const b of tail) {
+    if (b.keepWithPrev && keep.length === tail.indexOf(b)) keep.push(b);
+    else if (b.images && b.images.some((im) => im.src && !im.stamp)) keep.push({ ...b, pageBreakBefore: false });
+  }
+  // a QR picture floating next to the text above (it can cover the signature) moves to page 2 as well
+  for (const b of body.slice(0, s2 + 1)) {
+    const fl = (b.images || []).filter((im) => im.src && !im.stamp && im.anchor);
+    if (!fl.length || keep.some((k) => k.images && !k.keepWithPrev)) continue;
+    b.images = b.images.filter((im) => !fl.includes(im));
+    if (!b.images.length) delete b.images;
+    keep.push({ t: 'p', fs: 12, left: 0, after: 0, line: 1, runs: [], images: fl.slice(0, 1).map((im) => ({ src: im.src, w: im.w, h: im.h, at: 0 })) });
+  }
+  const page2 = JSON.parse(JSON.stringify(std));
+  const qr = keep.find((b) => b.images && !b.keepWithPrev);
+  const first = qr || page2[0];
+  first.pageBreakBefore = true;
+  first.page2 = true;
+  if (qr) page2[0].before = 6;
+  // special items go into the "things" list, before its last item
+  const list = page2.map((b, i) => (b.num && THINGS_RE.test(textOf(page2.slice(0, i).reverse().find(isBand) || {})) ? i : -1)).filter((i) => i >= 0);
+  if (extras.length && list.length) {
+    const last = list[list.length - 1];
+    const proto = page2[last];
+    const items = extras.map((x) => ({ ...JSON.parse(JSON.stringify(proto)), runs: [{ ...(proto.runs[0] || {}), text: x + ';' }] }));
+    page2.splice(last, 0, ...items);
+  }
+  tpl.body = body.slice(0, s2 + 1).concat(keep, page2);
+  return extras;
+}
+
 function main() {
   fs.mkdirSync(OUT, { recursive: true });
   fs.mkdirSync(IMG, { recursive: true });
   const index = [];
+  const built = [];
   for (const f of fs.readdirSync(SRC).filter((f) => f.endsWith('.docx') && INCLUDE(f)).sort()) {
     const base = f.replace(/\.docx$/, '');
     const meta = META[base] || {};
@@ -1033,20 +1113,33 @@ function main() {
       const g = group(base);
       const title = meta.title || base.replace(/^UMC (Портал|Платно) ОИР \((КС|ДС)\)\.?\s*/, '') || base;
       Object.assign(tpl, { id, title, group: g.id, source: f, aliases: meta.aliases || undefined });
-      // OneDrive sometimes locks a file for a moment: retry
-      for (let k = 0; ; k++) {
-        try {
-          fs.writeFileSync(path.join(OUT, id + '.json'), JSON.stringify(tpl));
-          break;
-        } catch (e) {
-          if (k >= 5) throw e;
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
-        }
-      }
+      built.push(tpl);
       index.push({ id, title, group: g.id, groupTitle: g.title, keywords: meta.keywords || [] });
       console.log('ok  ', id.padEnd(55), tpl.fields.map((x) => x.key + (x.default ? '*' : '')).join(','));
     } catch (e) {
       console.log('FAIL', f, e.stack);
+    }
+  }
+  const gae = built.find((t) => t.id === STD_ID);
+  const std = gae && standardPart(gae);
+  for (const tpl of built) {
+    if (std && tpl.group !== 'kl') {
+      try {
+        const extras = applyStandardPage2(tpl, std);
+        if (extras.length) console.log('page2', tpl.id, '+', extras.join(' | '));
+      } catch (e) {
+        console.log('page2 FAIL', tpl.id, e.message);
+      }
+    }
+    // OneDrive sometimes locks a file for a moment: retry
+    for (let k = 0; ; k++) {
+      try {
+        fs.writeFileSync(path.join(OUT, tpl.id + '.json'), JSON.stringify(tpl));
+        break;
+      } catch (e) {
+        if (k >= 5) throw e;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+      }
     }
   }
   fs.writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(index, null, 1));

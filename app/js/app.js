@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.2';
+  const VERSION = '0.6.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -682,7 +682,7 @@
     const d = Render.formatDate(v.date || todayISO(), 'dd.MM.yyyy');
     return `${shortFio(v.fio)} — ${state.tpl.title} — ${d}.pdf`.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ');
   }
-  async function buildPdf(compact) {
+  async function buildPdf(compact, flow) {
     await fontsReady;
     const images = await imagesFor(state.tpl);
     return Render.build(state.tpl, effectiveValues(), {
@@ -692,6 +692,7 @@
       title: fileName().replace(/\.pdf$/, ''),
       author: 'Ангиохирург',
       compact,
+      flow,
     });
   }
   // dd -> Blob; with check=true returns null when the signature spilled onto a new page alone
@@ -718,7 +719,10 @@
     const key = currentKey();
     if (state.blob && state.blobKey === key) return state.blob;
     // second, tighter layout only if the signature would end up alone on the next page
-    const blob = (await renderBlob(await buildPdf(false), true)) || (await renderBlob(await buildPdf(true), false));
+    const blob =
+      (await renderBlob(await buildPdf(false), true)) ||
+      (await renderBlob(await buildPdf(true), true)) ||
+      (await renderBlob(await buildPdf(true, true), false));
     state.blob = blob;
     state.blobKey = key;
     return blob;

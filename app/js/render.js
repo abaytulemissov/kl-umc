@@ -220,7 +220,8 @@
     // unbreakable: lay the stamp out together with its line, so near the bottom of a page
     // it is not pushed onto the next page on its own
     if (floating.length) node = { stack: [...floating, node], unbreakable: (b.images || []).some((i) => i.stamp) };
-    if (b.pageBreakBefore) node.pageBreak = 'before';
+    // flow = last resort when page 1 does not fit even compacted: page 2 just follows on
+    if (b.pageBreakBefore && !(b.page2 && ctx.flow)) node.pageBreak = 'before';
     if (b.breakAfter) node.pageBreak = 'after';
     return node;
   }
@@ -271,8 +272,9 @@
         vLineWidth: () => 0.5,
         paddingLeft: () => 3,
         paddingRight: () => 3,
-        paddingTop: () => 1,
-        paddingBottom: () => 1,
+        // compact: rows without the extra point above and below the text
+        paddingTop: () => (ctx.compact ? 0 : 1),
+        paddingBottom: () => (ctx.compact ? 0 : 1),
       },
     };
   }
@@ -364,6 +366,7 @@
       images: opts.images || {},
       stamp: opts.useStamp !== false ? opts.stamp : null,
       compact: !!opts.compact,
+      flow: !!opts.flow,
       expand: ((x, side) => (t) => applySide(x(t), side))(makeExpander(tpl, values || {}), values && values.side),
       has: (k) => !!(values && values[k] && String(values[k]).trim()),
       counters: {},
@@ -385,6 +388,8 @@
       footer: footerContent ? () => ({ stack: footerContent, margin: [p.left, 0, p.right, 0] }) : undefined,
       content,
     };
+    // the sheet has the standard page 2: the signature must stay on page 1
+    if (tpl.body.some((b) => b.page2)) Object.defineProperty(dd, 'klPage2', { value: true });
     return dd;
   }
 
@@ -393,13 +398,14 @@
   function orphanSignature(pages, dd) {
     if (!pages) return false;
     const top = dd.pageMargins[1];
+    const page2 = !!dd.klPage2;
     for (let i = 0; i < pages.length; i++) {
       for (const it of pages[i].items) {
         const inl = it.item && it.item.inlines;
         if (!inl) continue;
         const t = inl.map((x) => x.text).join('');
         // within the first ~3 lines of a new page = spilled over (alone or with a line or two)
-        if (/Абай Канатович|Тулемисов Абай/.test(t)) return i > 0 && it.item.y - top < 60;
+        if (/Абай Канатович|Тулемисов Абай/.test(t)) return i > 0 && (page2 || it.item.y - top < 60);
       }
     }
     return false;

@@ -19,7 +19,12 @@ for (const id of ids) {
   let doc = new PdfPrinter(fonts).createPdfKitDocument(dd);
   if (Render.orphanSignature(doc._pdfMakePages, dd)) {
     console.log('compact:', id);
-    doc = new PdfPrinter(fonts).createPdfKitDocument(Render.build(tpl, values, { ...opts, compact: true }));
+    dd = Render.build(tpl, values, { ...opts, compact: true });
+    doc = new PdfPrinter(fonts).createPdfKitDocument(dd);
+    if (Render.orphanSignature(doc._pdfMakePages, dd)) {
+      console.log('flow:', id);
+      doc = new PdfPrinter(fonts).createPdfKitDocument(Render.build(tpl, values, { ...opts, compact: true, flow: true }));
+    }
   }
   doc.pipe(fs.createWriteStream(path.join(out, id + '.pdf'))); doc.end();
 }
