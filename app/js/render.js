@@ -25,6 +25,33 @@
   }
 
   // ------------------------------------------------------------ placeholders
+  // ------------------------------------------------------------ side (справа / слева)
+  // whole words only: "справа/слева" and adjective forms "правой, левого, правую…"
+  const NL = '(^|[^А-Яа-яЁё])', NR = '(?![А-Яа-яЁё])';
+  const ADV = new RegExp(NL + '([Сс])(права|лева)' + NR, 'g');
+  const ADJ = new RegExp(NL + '(Прав|прав|Лев|лев)(ая|ой|ую|ое|ого|ому|ом|ые|ых|ым|ыми|ый)' + NR, 'g');
+  function sides(text) {
+    const s = { right: false, left: false };
+    String(text || '').replace(ADV, (m, p, c, w) => ((s[w === 'права' ? 'right' : 'left'] = true), m));
+    String(text || '').replace(ADJ, (m, p, w) => ((s[/^п/i.test(w) ? 'right' : 'left'] = true), m));
+    return s;
+  }
+  // the single side named in the text, or '' (none or both)
+  function sideOf(text) {
+    const s = sides(text);
+    return s.right && !s.left ? 'right' : s.left && !s.right ? 'left' : '';
+  }
+  function applySide(text, side) {
+    if (!text || (side !== 'left' && side !== 'right')) return text;
+    const L = side === 'left';
+    return String(text)
+      .replace(ADV, (m, p, c) => p + c + (L ? 'лева' : 'права'))
+      .replace(ADJ, (m, p, w, end) => {
+        const up = w[0] === w[0].toUpperCase();
+        return p + (L ? (up ? 'Лев' : 'лев') : up ? 'Прав' : 'прав') + end;
+      });
+  }
+
   function makeExpander(tpl, values) {
     const fields = {};
     for (const f of tpl.fields || []) fields[f.key] = f;
@@ -318,7 +345,7 @@
       images: opts.images || {},
       stamp: opts.useStamp !== false ? opts.stamp : null,
       compact: !!opts.compact,
-      expand: makeExpander(tpl, values || {}),
+      expand: ((x, side) => (t) => applySide(x(t), side))(makeExpander(tpl, values || {}), values && values.side),
       has: (k) => !!(values && values[k] && String(values[k]).trim()),
       counters: {},
     };
@@ -359,5 +386,5 @@
     return false;
   }
 
-  global.Render = { build, formatDate, BLANK, orphanSignature };
+  global.Render = { build, formatDate, BLANK, orphanSignature, sides, sideOf, applySide };
 })(typeof window !== 'undefined' ? window : globalThis);

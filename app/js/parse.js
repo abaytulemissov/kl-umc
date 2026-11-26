@@ -315,10 +315,11 @@
 
     const lower = norm(text);
     // (\b does not work with Cyrillic in JS regular expressions)
-    const L = /слева|левой|левая|левую/.test(lower);
-    const R = /справа|правой|правая|правую/.test(lower);
-    if (L && !R) result.side = 'left';
-    if (R && !L) result.side = 'right';
+    const sd = global.Render && global.Render.sides
+      ? global.Render.sides(lower)
+      : { left: /слева|левой|левая|левую/.test(lower), right: /справа|правой|правая|правую/.test(lower) };
+    if (sd.left && !sd.right) result.side = 'left';
+    if (sd.right && !sd.left) result.side = 'right';
 
     Object.assign(result.values, findGrades(text, tpl));
 

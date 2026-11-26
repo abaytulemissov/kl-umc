@@ -1016,6 +1016,7 @@ function group(name) {
   if (/\(КС\)/.test(name)) return { id: 'ks', title: 'Портал · круглосуточный стационар' };
   if (/Портал ОИР \(ДС\)/.test(name)) return { id: 'ds', title: 'Портал · дневной стационар' };
   if (/Платно/.test(name)) return { id: 'paid', title: 'Платные услуги' };
+  if (/(^|\s)(КЛ|Консультативный лист)(\s|$)/i.test(name)) return { id: 'kl', title: 'Консультативный лист' };
   return { id: 'other', title: 'Другое' };
 }
 

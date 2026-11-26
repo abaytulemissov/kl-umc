@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.4.0';
+  const VERSION = '0.5.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -50,6 +50,7 @@
     blob: null,
     blobKey: '',
     stamp: store.get('stamp', null),
+    folder: store.get('folder', null), // the template section open on the home screen
   };
 
   let toastTimer;
@@ -243,13 +244,21 @@
   }
 
   // =============================================================== home
-  const GROUP_ORDER = ['ks', 'ds', 'paid', 'other'];
-  function templateButtons(list, onPick) {
+  const GROUP_ORDER = ['ks', 'ds', 'kl', 'paid', 'other'];
+  // home screen sections ("folders"); a section with `always` is shown even while it has no templates
+  const SECTIONS = [
+    { id: 'portal', title: 'Портал (Госпитализация)', sub: 'Листы для госпитализации через портал', groups: ['ks', 'ds'], always: true },
+    { id: 'kl', title: 'Консультативный лист', sub: 'Первичный осмотр: жалобы, анамнез, локальный статус, исследования, диагноз, рекомендации', groups: ['kl'], always: true },
+    { id: 'paid', title: 'Платные услуги', groups: ['paid'] },
+    { id: 'other', title: 'Другое', groups: ['other'] },
+  ];
+  function templateButtons(list, onPick, strip) {
     const frag = document.createDocumentFragment();
     for (const g of GROUP_ORDER) {
       const items = list.filter((t) => t.group === g);
       if (!items.length) continue;
-      frag.append(el('div', { class: 'group-title' }, items[0].groupTitle));
+      const gt = strip ? items[0].groupTitle.replace(strip, '') : items[0].groupTitle;
+      if (gt) frag.append(el('div', { class: 'group-title' }, gt));
       frag.append(
         el('div', { class: 'tpl-grid' }, items.map((t) => el('button', { type: 'button', class: 'tpl-item', onclick: () => onPick(t.id) }, t.title)))
       );
@@ -258,11 +267,40 @@
   }
   function renderTemplateList() {
     const q = $('#search').value.trim().toLowerCase();
-    const list = state.index.filter((t) => !q || t.title.toLowerCase().includes(q) || (t.keywords || []).some((k) => k.includes(q)));
     const box = $('#templateList');
     box.innerHTML = '';
-    if (!list.length) box.append(el('p', { class: 'hint' }, 'Ничего не найдено'));
-    box.append(templateButtons(list, (id) => openForm(id)));
+    if (q) {
+      // search looks through every section
+      const list = state.index.filter((t) => t.title.toLowerCase().includes(q) || (t.keywords || []).some((k) => k.includes(q)));
+      if (!list.length) box.append(el('p', { class: 'hint' }, 'Ничего не найдено'));
+      box.append(templateButtons(list, (id) => openForm(id)));
+      return;
+    }
+    const sec = SECTIONS.find((s) => s.id === state.folder);
+    if (!sec) {
+      const list = el('div', { class: 'folder-list' });
+      for (const s of SECTIONS) {
+        const n = state.index.filter((t) => s.groups.includes(t.group)).length;
+        if (!n && !s.always) continue;
+        list.append(
+          el('button', { type: 'button', class: 'folder', onclick: () => openFolder(s.id) },
+            el('span', { class: 'f-text' }, el('span', { class: 'f-title' }, s.title), s.sub ? el('span', { class: 'f-sub' }, s.sub) : ''),
+            el('span', { class: 'f-count' }, n ? String(n) : 'пусто'))
+        );
+      }
+      box.append(list);
+      return;
+    }
+    box.append(el('button', { type: 'button', class: 'btn ghost small folder-back', onclick: () => openFolder(null) }, '‹ Все разделы'));
+    box.append(el('div', { class: 'folder-head' }, sec.title));
+    const items = state.index.filter((t) => sec.groups.includes(t.group));
+    if (!items.length) box.append(el('div', { class: 'empty-folder' }, 'Шаблонов пока нет — они появятся здесь, когда мы их добавим.'));
+    box.append(templateButtons(items, (id) => openForm(id), /^Портал · /));
+  }
+  function openFolder(id) {
+    state.folder = id;
+    store.set('folder', id);
+    renderTemplateList();
   }
 
   function renderRecent() {
@@ -377,12 +415,19 @@
     for (const f of tpl.fields) {
       if (f.key === 'diagnosis' || f.key === 'operation') v[f.key] = toDisplay(f.default || '');
     }
-    if (parsed && parsed.side && v.diagnosis) v.diagnosis = Parse.applySide(v.diagnosis, parsed.side);
     for (const k in pv) {
       if (!tpl.fields.some((f) => f.key === k)) continue;
       v[k] = k === 'diagnosis' || k === 'operation' ? toDisplay(pv[k]) : pv[k];
     }
     const notes = [];
+    // templates that mention a side get one "Сторона" switch; all side words in the sheet follow it
+    state.sideAware = (({ right, left }) => right || left)(Render.sides(JSON.stringify(tpl)));
+    v.side = '';
+    if (state.sideAware) {
+      v.side = (parsed && parsed.side) || Render.sideOf(pv.diagnosis) || '';
+      if (v.side) for (const k of ['diagnosis', 'operation']) if (v[k]) v[k] = Render.applySide(v[k], v.side);
+      if (parsed && !v.side) notes.push('Сторона не названа — выберите «Справа» или «Слева» в поле «Сторона».');
+    }
     if (parsed && parsed.opCode && tpl.fields.some((f) => f.key === 'operation')) {
       const def = (tpl.fields.find((f) => f.key === 'operation').default || '').trim();
       if (!def) v.operation = parsed.opCode;
@@ -406,9 +451,38 @@
     schedulePreview(true);
   }
 
+  function setSide(side) {
+    state.values.side = side;
+    for (const k of ['diagnosis', 'operation']) {
+      if (!state.values[k]) continue;
+      state.values[k] = Render.applySide(state.values[k], side);
+      const inp = $('#f_' + k);
+      if (inp && inp.value !== state.values[k]) inp.value = state.values[k];
+    }
+    paintSide();
+    schedulePreview();
+  }
+  function paintSide() {
+    const row = $('#sideRow');
+    if (!row) return;
+    row.classList.toggle('need', !state.values.side);
+    row.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.side === state.values.side));
+  }
+  function sideField() {
+    const b = (side, text) => el('button', { type: 'button', class: 'side-btn', 'data-side': side, onclick: () => setSide(side) }, text);
+    return el('div', { class: 'field side-field', id: 'sideRow' },
+      el('label', {}, 'Сторона'),
+      el('div', { class: 'side-switch' }, b('right', 'Справа'), b('left', 'Слева')),
+      el('div', { class: 'sub' }, 'Диагноз, операция и текст рекомендаций меняются под выбранную сторону.'));
+  }
+
   function renderFields() {
     const form = $('#fields');
     form.innerHTML = '';
+    if (state.sideAware) {
+      form.append(sideField());
+      paintSide();
+    }
     for (const f of state.tpl.fields) {
       if (f.hidden) continue;
       const id = 'f_' + f.key;
@@ -424,7 +498,12 @@
         state.values[f.key] = input.value;
         wrap.classList.toggle('filled', !!input.value.trim());
         if (f.key === 'dob') sub.textContent = ageText(input.value);
-        if (f.default != null && (f.key === 'diagnosis' || f.key === 'operation')) reset.hidden = input.value === toDisplay(f.default);
+        if (f.default != null && (f.key === 'diagnosis' || f.key === 'operation')) reset.hidden = input.value === Render.applySide(toDisplay(f.default), state.values.side);
+        // a side typed or dictated into the diagnosis/operation switches the whole sheet to it
+        if (state.sideAware && (f.key === 'diagnosis' || f.key === 'operation')) {
+          const s = Render.sideOf(input.value);
+          if (s && s !== state.values.side) setSide(s);
+        }
         schedulePreview();
       };
       input.addEventListener('input', update);
@@ -458,12 +537,12 @@
       );
       mic.addEventListener('pointerdown', () => (base.v = input.value));
       const reset = el('button', { type: 'button', class: 'btn ghost small', hidden: true, onclick: () => {
-        input.value = toDisplay(f.default || '');
+        input.value = Render.applySide(toDisplay(f.default || ''), state.values.side);
         update();
       } }, 'Вернуть из шаблона');
       wrap.append(el('div', { class: 'row-input' }, input, mic));
       if (f.key === 'diagnosis' || f.key === 'operation') {
-        reset.hidden = (state.values[f.key] || '') === toDisplay(f.default || '');
+        reset.hidden = (state.values[f.key] || '') === Render.applySide(toDisplay(f.default || ''), state.values.side);
         wrap.append(el('div', { class: 'row', style: 'margin-top:.35rem' }, reset));
         if (/⟨/.test(state.values[f.key] || '')) wrap.append(el('div', { class: 'sub' }, 'Значения в ⟨скобках⟩ подставляются из полей ниже.'));
       }
@@ -607,6 +686,11 @@
     if (!(state.values.fio || '').trim()) {
       toast('Заполните ФИО пациента');
       $('#f_fio') && $('#f_fio').focus();
+      return false;
+    }
+    if (state.sideAware && !state.values.side) {
+      toast('Выберите сторону: «Справа» или «Слева»');
+      $('#sideRow') && $('#sideRow').scrollIntoView({ block: 'center', behavior: 'smooth' });
       return false;
     }
     return true;
