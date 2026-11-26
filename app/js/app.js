@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.1';
+  const VERSION = '0.5.2';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -310,15 +310,70 @@
     box.innerHTML = '';
     for (const item of h.slice(0, 5)) {
       const when = new Date(item.ts);
-      box.append(
-        el(
-          'button',
-          { type: 'button', class: 'recent-item', onclick: () => openForm(item.id, { values: item.values }) },
-          el('span', null, el('b', null, item.fio || 'Без ФИО'), ' · ', item.title),
-          el('small', null, `${pad(when.getDate())}.${pad(when.getMonth() + 1)}`)
-        )
+      const btn = el(
+        'button',
+        { type: 'button', class: 'recent-item' },
+        el('span', null, el('b', null, item.fio || 'Без ФИО'), ' · ', item.title),
+        el('small', null, `${pad(when.getDate())}.${pad(when.getMonth() + 1)}`)
       );
+      const trash = el('div', { class: 'recent-trash', 'aria-hidden': 'true' });
+      trash.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+      const row = el('div', { class: 'recent-row' }, trash, btn);
+      swipeToDelete(row, btn, () => removeRecent(item.ts));
+      btn.addEventListener('click', () => {
+        if (!row.dataset.swiped) openForm(item.id, { values: item.values });
+      });
+      box.append(row);
     }
+  }
+  function removeRecent(ts) {
+    store.set('history', store.get('history', []).filter((x) => x.ts !== ts));
+    renderRecent();
+  }
+  // swipe a row to the left: a red bin shows up; let go past the threshold = delete, otherwise it slides back
+  function swipeToDelete(row, item, onDelete) {
+    let x0 = 0, y0 = 0, dx = 0, mode = '', id = null;
+    const limit = () => Math.min(140, row.offsetWidth * 0.4);
+    const set = (x, anim) => {
+      item.style.transition = anim ? 'transform .22s ease' : 'none';
+      item.style.transform = x ? `translateX(${x}px)` : '';
+      row.classList.toggle('armed', -x >= limit());
+      row.style.setProperty('--reveal', Math.min(1, -x / limit()));
+    };
+    item.addEventListener('pointerdown', (e) => {
+      if (e.button) return;
+      x0 = e.clientX; y0 = e.clientY; dx = 0; mode = ''; id = e.pointerId;
+      delete row.dataset.swiped;
+    });
+    item.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id) return;
+      const mx = e.clientX - x0, my = e.clientY - y0;
+      if (!mode) {
+        if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+        mode = Math.abs(mx) > Math.abs(my) && mx < 0 ? 'swipe' : 'scroll';
+        if (mode === 'swipe') {
+          row.dataset.swiped = '1';
+          try { item.setPointerCapture(id); } catch (err) {}
+        }
+      }
+      if (mode !== 'swipe') return;
+      dx = Math.min(0, mx);
+      set(dx, false);
+    });
+    const end = (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      if (mode !== 'swipe') return;
+      if (-dx >= limit()) {
+        set(-row.offsetWidth, true);
+        row.classList.add('removing');
+        setTimeout(onDelete, 230);
+      } else set(0, true);
+      // the click that follows a swipe must not open the sheet
+      setTimeout(() => delete row.dataset.swiped, 50);
+    };
+    item.addEventListener('pointerup', end);
+    item.addEventListener('pointercancel', end);
   }
 
   async function doParse() {
