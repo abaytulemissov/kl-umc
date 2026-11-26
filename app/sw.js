@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION whenever app files change.
-const VERSION = 'kl-v0.6.0';
+const VERSION = 'kl-v0.6.1';
 const CORE = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/render.js', 'js/parse.js', 'js/vault.js',
   'vendor/pdfmake.min.js', 'manifest.webmanifest', 'icons/icon.svg',

@@ -1025,6 +1025,7 @@ function group(name) {
 // is the standard: every sheet gets it on a page of its own. Items a sheet listed that the standard
 // does not cover (compression stockings, an elastic bandage, a sclerotherapy drug…) are kept.
 const STD_ID = 'portal-oir-ks-gae';
+const QR_SRC = 'img/d470b6c7.png'; // "оставить отзыв" QR code
 const COMMON_ITEM = /ногт|ресниц|украшени|станок|бритв|кружк|ложк|тапоч|одежд|документ|направлени|препарат[а-я]* с указ|столов|пациенту необходимо/i;
 const THINGS_RE = /вещ|с собой/i;
 const isBand = (b) => !!b.fill;
@@ -1069,24 +1070,21 @@ function applyStandardPage2(tpl, std) {
   const tail = body.slice(s2 + 1);
   tail.forEach((b, k) => isBand(b) && THINGS_RE.test(textOf(b)) && take(s2 + 1 + k));
   const keep = [];
-  for (const b of tail) {
-    if (b.keepWithPrev && keep.length === tail.indexOf(b)) keep.push(b);
-    else if (b.images && b.images.some((im) => im.src && !im.stamp)) keep.push({ ...b, pageBreakBefore: false });
-  }
-  // a QR picture floating next to the text above (it can cover the signature) moves to page 2 as well
+  for (const b of tail) if (b.keepWithPrev && keep.length === tail.indexOf(b)) keep.push(b);
+  // the QR picture leaves the text: the renderer puts it in the bottom-left corner of page 1 (tpl.qr)
   for (const b of body.slice(0, s2 + 1)) {
-    const fl = (b.images || []).filter((im) => im.src && !im.stamp && im.anchor);
-    if (!fl.length || keep.some((k) => k.images && !k.keepWithPrev)) continue;
-    b.images = b.images.filter((im) => !fl.includes(im));
+    if (!b.images) continue;
+    b.images = b.images.filter((im) => !(im.src === QR_SRC));
     if (!b.images.length) delete b.images;
-    keep.push({ t: 'p', fs: 12, left: 0, after: 0, line: 1, runs: [], images: fl.slice(0, 1).map((im) => ({ src: im.src, w: im.w, h: im.h, at: 0 })) });
   }
   const page2 = JSON.parse(JSON.stringify(std));
-  const qr = keep.find((b) => b.images && !b.keepWithPrev);
-  const first = qr || page2[0];
-  first.pageBreakBefore = true;
-  first.page2 = true;
-  if (qr) page2[0].before = 6;
+  page2[0].pageBreakBefore = true;
+  page2[0].page2 = true;
+  // day hospital: no shaving of an operating field
+  if (/\(ДС\)/.test(tpl.source || '')) {
+    const k = page2.findIndex((b) => /бритвенн/i.test(textOf(b)));
+    if (k >= 0) page2.splice(k, 1);
+  }
   // special items go into the "things" list, before its last item
   const list = page2.map((b, i) => (b.num && THINGS_RE.test(textOf(page2.slice(0, i).reverse().find(isBand) || {})) ? i : -1)).filter((i) => i >= 0);
   if (extras.length && list.length) {
@@ -1096,6 +1094,7 @@ function applyStandardPage2(tpl, std) {
     page2.splice(last, 0, ...items);
   }
   tpl.body = body.slice(0, s2 + 1).concat(keep, page2);
+  tpl.qr = { src: QR_SRC, w: 78, h: 87.8 };
   return extras;
 }
 

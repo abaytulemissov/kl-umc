@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.0';
+  const VERSION = '0.6.1';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);

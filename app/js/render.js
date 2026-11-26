@@ -359,7 +359,12 @@
     const p = tpl.page;
     const headerH = tpl.header ? Math.max(p.header + estimateHeight(tpl.header), floatingBottom(tpl.header, p) + 4) : 0;
     const footerH = tpl.footer ? p.footer + estimateHeight(tpl.footer) + 2 : 0;
-    const margins = [p.left, Math.max(p.top, headerH), p.right, Math.max(p.bottom, footerH)];
+    // QR code ("оставить отзыв"): bottom-left corner of page 1, next to the doctor's details;
+    // the bottom margin grows so that it never covers the text
+    const QR_W = 62;
+    const qr = tpl.qr && (opts.images || {})[tpl.qr.src] ? { src: tpl.qr.src, w: QR_W, h: (QR_W * tpl.qr.h) / tpl.qr.w } : null;
+    const qrH = qr ? qr.h + Math.min(p.footer, 12) + 4 : 0;
+    const margins = [p.left, Math.max(p.top, headerH), p.right, Math.max(p.bottom, footerH, qrH)];
     const ctx = {
       page: p,
       margins,
@@ -385,7 +390,12 @@
       defaultStyle: { font: 'Arimo', fontSize: 10, lineHeight: 1 },
       images,
       header: headerContent ? () => ({ stack: headerContent, margin: [p.left, p.header, p.right, 0] }) : undefined,
-      footer: footerContent ? () => ({ stack: footerContent, margin: [p.left, 0, p.right, 0] }) : undefined,
+      footer: (cur) => {
+        const parts = [];
+        if (qr && cur === 1) parts.push({ image: qr.src, width: qr.w, height: qr.h, absolutePosition: { x: p.left, y: margins[3] - Math.min(p.footer, 12) - qr.h } }); // y counts from the footer's top
+        if (footerContent) parts.push({ stack: footerContent, margin: [p.left, 0, p.right, 0] });
+        return parts.length ? { stack: parts } : null;
+      },
       content,
     };
     // the sheet has the standard page 2: the signature must stay on page 1
