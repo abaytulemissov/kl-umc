@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.8.1';
+  const VERSION = '0.9.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -252,9 +252,39 @@
     { id: 'paid', title: 'Платные услуги', groups: ['paid'] },
     { id: 'other', title: 'Другое', groups: ['other'] },
   ];
+  // portal sheets are grouped by what is treated (agreed with the doctor); order = order on screen
+  const CATEGORIES = [
+    ['Сонные артерии', ['portal-oir-ks-patologicheskaya-izvitost-a-carotica-internaa', 'portal-oir-ks-karotidnaya-endarterektomiya', 'portal-oir-ks-hemodektoma']],
+    ['Подключичные артерии', ['portal-oir-ks-stenting-sublavia', 'portal-oir-ks-spsh']],
+    ['Аорта и почечные артерии', ['portal-oir-ks-endograft', 'portal-oir-ks-renalarterystenting']],
+    ['Артерии нижних конечностей', ['portal-oir-ks-balloonangioplasty']],
+    ['Вены нижних конечностей', ['portal-oir-ks-vbnk', 'portal-oir-ds-vbnk', 'portal-oir-ds-sklero']],
+    ['Вены таза и варикоцеле', ['portal-oir-ks-vbvt', 'portal-oir-ks-varikocele']],
+    ['Эмболизации: матка, коленные суставы', ['portal-oir-ks-ema', 'portal-oir-ks-gae']],
+    ['Сосудистые мальформации', ['portal-oir-ks-vrozhdennaya-avm', 'portal-oir-ks-detskie']],
+    ['Доступы для гемодиализа и порт-системы', ['portal-oir-ks-thpn-avf', 'portal-oir-ks-thpn-permanent', 'portal-oir-ks-port-sistema']],
+    ['Желчные пути', ['portal-oir-ds-zamena-chchhs']],
+  ];
+  const PORTAL = ['ks', 'ds'];
   function templateButtons(list, onPick, strip) {
     const frag = document.createDocumentFragment();
+    const grid = (items) =>
+      el('div', { class: 'tpl-grid' }, items.map((t) => el('button', { type: 'button', class: 'tpl-item', onclick: () => onPick(t.id) }, t.title)));
+    const portal = list.filter((t) => PORTAL.includes(t.group));
+    if (portal.length) {
+      const used = new Set();
+      for (const [title, ids] of CATEGORIES) {
+        const items = ids.map((id) => portal.find((t) => t.id === id)).filter(Boolean);
+        if (!items.length) continue;
+        items.forEach((t) => used.add(t.id));
+        frag.append(el('div', { class: 'group-title' }, title), grid(items));
+      }
+      // sheets without a category yet (e.g. «Общий», new imports) go last
+      const rest = portal.filter((t) => !used.has(t.id));
+      if (rest.length) frag.append(el('div', { class: 'group-title' }, 'Другие'), grid(rest));
+    }
     for (const g of GROUP_ORDER) {
+      if (PORTAL.includes(g)) continue;
       const items = list.filter((t) => t.group === g);
       if (!items.length) continue;
       const gt = strip ? items[0].groupTitle.replace(strip, '') : items[0].groupTitle;
