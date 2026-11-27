@@ -121,7 +121,30 @@ const ROW_FOR = {
   ],
   'portal-oir-ks-spsh': [[/^КТ грудной и брюшной аорты.*/, 'КТ-ангиография брахиоцефальных артерий и дуги аорты с контрастированием']],
   'portal-oir-ks-port-sistema': [[/\s*\(при наличии диуреза\)/, '']],
+  // lower-limb arteries: CT of the abdominal aorta and leg arteries is a must, brachiocephalic arteries — ultrasound is enough
+  'portal-oir-ks-balloonangioplasty': [[/^КТ грудной и брюшной аорты.*/, 'КТ-ангиография брюшной аорты и артерий нижних конечностей с контрастированием']],
+  'portal-oir-ks-iliac-stenting': [[/^КТ грудной и брюшной аорты.*/, 'КТ-ангиография брюшной аорты и артерий нижних конечностей с контрастированием']],
 };
+// rows added right after the row that matches
+const LEG_BCA = [[/^УЗДГ артерий нижних конечностей/, ['УЗДГ брахиоцефальных артерий', 'до 1 месяца']]];
+const ROW_ADD = { 'portal-oir-ks-balloonangioplasty': LEG_BCA, 'portal-oir-ks-iliac-stenting': LEG_BCA };
+// «Осмотр терапевта» and «По показаниям осмотр кардиолога, …» -> one row: specialists only when there is a concomitant disease
+const SPECIALISTS = ['кардиолога', 'невропатолога', 'эндокринолога', 'нефролога', 'офтальмолога'];
+function therapistRow(rows) {
+  const i = rows.findIndex(([n]) => /^Осмотр терапевта/i.test(n));
+  if (i < 0) return rows;
+  rows = rows.filter(([n], k) => k <= i || !/^(По|При наличии) показани/i.test(n));
+  // specialists that already have a row of their own (or are in the therapist row) are not repeated
+  const own = rows.filter(([n]) => /^Осмотр/i.test(n)).map(([n]) => n).join(' ');
+  const nephro = /нефролог/i.test(rows[i][0]);
+  const extra = SPECIALISTS.filter((s) => !new RegExp(s.slice(0, -1), 'i').test(own));
+  rows[i] = [
+    (nephro ? 'Осмотр терапевта и нефролога' : 'Осмотр терапевта') +
+      ` (при сопутствующих заболеваниях — дополнительно осмотр профильного специалиста: ${extra.join(', ')})`,
+    'до 30 дней',
+  ];
+  return rows;
+}
 // rows that must not be on a sheet
 const ROW_DROP = { 'portal-oir-ks-gae': /ФГДС|гастроскоп/i };
 function term(s) {
@@ -179,6 +202,11 @@ function analysesTable(tpl) {
   if (!rows.length) return;
   rows = rows.map(([n, d]) => normRow(tpl.id, n, d));
   if (ROW_DROP[tpl.id]) rows = rows.filter(([n]) => !ROW_DROP[tpl.id].test(n));
+  for (const [re, row] of ROW_ADD[tpl.id] || []) {
+    const k = rows.findIndex(([n]) => re.test(n));
+    if (k >= 0) rows.splice(k + 1, 0, row);
+  }
+  rows = therapistRow(rows);
   const colW = tpl.page.w - tpl.page.left - tpl.page.right;
   const p = (text) => ({ t: 'p', runs: text ? [{ text, fontSize: fs }] : [], fs, after: 0, line: 1 });
   const table = {
