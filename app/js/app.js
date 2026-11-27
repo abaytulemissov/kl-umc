@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.10.0';
+  const VERSION = '0.11.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -256,7 +256,7 @@
   const CATEGORIES = [
     ['Сонные артерии', ['portal-oir-ks-patologicheskaya-izvitost-a-carotica-internaa', 'portal-oir-ks-karotidnaya-endarterektomiya', 'portal-oir-ks-hemodektoma']],
     ['Подключичные артерии', ['portal-oir-ks-stenting-sublavia', 'portal-oir-ks-spsh']],
-    ['Аорта и почечные артерии', ['portal-oir-ks-endograft', 'portal-oir-ks-renalarterystenting']],
+    ['Аорта и почечные артерии', ['portal-oir-ks-endograft', 'portal-oir-ks-tevar', 'portal-oir-ks-renalarterystenting']],
     ['Артерии нижних конечностей', ['portal-oir-ks-balloonangioplasty', 'portal-oir-ks-iliac-stenting']],
     ['Вены нижних конечностей', ['portal-oir-ks-vbnk', 'portal-oir-ds-vbnk', 'portal-oir-ds-sklero']],
     ['Вены таза и варикоцеле', ['portal-oir-ks-vbvt', 'portal-oir-ks-varikocele']],
