@@ -1120,25 +1120,6 @@ function main() {
       console.log('FAIL', f, e.stack);
     }
   }
-  // sheets that have no Word file of their own: a copy of another sheet (content.js sets their texts)
-  const DERIVED = [
-    {
-      from: 'portal-oir-ks-balloonangioplasty',
-      id: 'portal-oir-ks-iliac-stenting',
-      title: 'Стентирование подвздошных артерий',
-      keywords: ['подвздош', 'стентирование подвздош', 'стент подвздош'],
-    },
-  ];
-  for (const d of DERIVED) {
-    const src = built.find((t) => t.id === d.from);
-    if (!src) continue;
-    const tpl = JSON.parse(JSON.stringify(src));
-    Object.assign(tpl, { id: d.id, title: d.title });
-    built.push(tpl);
-    const at = index.findIndex((x) => x.id === d.from);
-    index.splice(at + 1, 0, { ...index[at], id: d.id, title: d.title, keywords: d.keywords });
-    console.log('copy', d.id, '<-', d.from);
-  }
   const gae = built.find((t) => t.id === STD_ID);
   const std = gae && standardPart(gae);
   for (const tpl of built) {
