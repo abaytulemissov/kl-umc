@@ -13,6 +13,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 // Sheets with the «Сторона» switch (agreed with the doctor); every other sheet has none.
 const SIDE_SHEETS = [
   'portal-oir-ks-balloonangioplasty',
+  'portal-oir-ks-iliac-stenting',
   'portal-oir-ks-renalarterystenting',
   'portal-oir-ks-stenting-sublavia',
   'portal-oir-ks-spsh',
@@ -39,6 +40,10 @@ const DEFAULTS = {
   'portal-oir-ks-balloonangioplasty': {
     diagnosis: 'I70.2 – Атеросклероз артерий нижних конечностей.',
     operation: '39.793 – Баллонная ангиопластика',
+  },
+  'portal-oir-ks-iliac-stenting': {
+    diagnosis: 'I70.2 – Атеросклероз артерий нижних конечностей. Стеноз подвздошного сегмента справа.',
+    operation: '39.764 – Стентирование подвздошной артерии справа',
   },
   'portal-oir-ks-vbnk': {
     diagnosis: 'I83.1 – ВБНК. Варикозное расширение большой подкожной вены справа. C4.',
@@ -369,6 +374,10 @@ function editContent(tpl) {
   if (id === 'portal-oir-ks-detskie') childPage2(tpl);
   tpl.sideAware = SIDE_SHEETS.includes(id);
   if (id === 'portal-oir-ks-balloonangioplasty') tpl.dxBuilder = 'limb';
+  if (id === 'portal-oir-ks-iliac-stenting') {
+    tpl.dxBuilder = 'limb';
+    tpl.dxPreset = { levels: ['iliac'], lesions: ['stenosis'], khan: '' };
+  }
 }
 
 module.exports = { editContent };

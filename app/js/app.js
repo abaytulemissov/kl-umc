@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.9.0';
+  const VERSION = '0.10.0';
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs, ...children) => {
     const n = document.createElement(tag);
@@ -257,7 +257,7 @@
     ['Сонные артерии', ['portal-oir-ks-patologicheskaya-izvitost-a-carotica-internaa', 'portal-oir-ks-karotidnaya-endarterektomiya', 'portal-oir-ks-hemodektoma']],
     ['Подключичные артерии', ['portal-oir-ks-stenting-sublavia', 'portal-oir-ks-spsh']],
     ['Аорта и почечные артерии', ['portal-oir-ks-endograft', 'portal-oir-ks-renalarterystenting']],
-    ['Артерии нижних конечностей', ['portal-oir-ks-balloonangioplasty']],
+    ['Артерии нижних конечностей', ['portal-oir-ks-balloonangioplasty', 'portal-oir-ks-iliac-stenting']],
     ['Вены нижних конечностей', ['portal-oir-ks-vbnk', 'portal-oir-ds-vbnk', 'portal-oir-ds-sklero']],
     ['Вены таза и варикоцеле', ['portal-oir-ks-vbvt', 'portal-oir-ks-varikocele']],
     ['Эмболизации: матка, коленные суставы', ['portal-oir-ks-ema', 'portal-oir-ks-gae']],
@@ -524,7 +524,7 @@
       if (miss.length) notes.push('Не распознано: ' + miss.join(', ') + '. Заполните вручную или голосом.');
     }
     if (tpl.dxBuilder) {
-      v.dxb = (parsed && Builder.fromText(parsed.text)) || Builder.empty();
+      v.dxb = Builder.start(tpl, parsed && parsed.text);
       if (Builder.used(v.dxb)) v.diagnosis = Builder.compose(v.dxb, v.side);
     }
     state.values = v;
@@ -585,6 +585,17 @@
     KHAN: ['I', 'II', 'III', 'IV'],
     BASE: 'I70.2 – Атеросклероз артерий нижних конечностей.',
     empty: () => ({ levels: [], lesions: [], khan: '' }),
+    // what the chips show when a sheet opens: dictated words, else the sheet's preset (iliac stenting: «Подвздошный», «Стеноз»)
+    start(tpl, text) {
+      const p = tpl.dxPreset;
+      const b = (text && Builder.fromText(text)) || Builder.empty();
+      if (p) {
+        if (!b.levels.length) b.levels = p.levels.slice();
+        if (!b.lesions.length) b.lesions = p.lesions.slice();
+        if (!b.khan) b.khan = p.khan || '';
+      }
+      return b;
+    },
     used: (b) => !!b && (b.levels.length > 0 || b.lesions.length > 0 || !!b.khan),
     compose(b, side) {
       const parts = [Builder.BASE];
@@ -702,7 +713,7 @@
       const reset = el('button', { type: 'button', class: 'btn ghost small', hidden: true, onclick: () => {
         input.value = Render.applySide(toDisplay(f.default || ''), state.values.side);
         if (f.key === 'diagnosis' && state.tpl.dxBuilder) {
-          state.values.dxb = Builder.empty();
+          state.values.dxb = Builder.start(state.tpl);
           paintBuilder();
         }
         update();
